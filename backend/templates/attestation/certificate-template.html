@@ -1,0 +1,72 @@
+<!doctype html>
+<html lang="fr">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Attestation REEBI</title>
+    <link rel="stylesheet" href="./styles.css" />
+  </head>
+  <body>
+    <main class="certificate" role="document" aria-label="Attestation REEBI" style="width: 100%; height: 100%;">
+
+      <!-- ═══════════════ HEADER ═══════════════ -->
+      <header class="header">
+        <div class="logo-wrapper">
+          <img class="logo" src="./assets/logo-reebi.png" alt="Logo REEBI" />
+        </div>
+        <div class="header-content">
+          <div class="line-header-grey"></div>
+          <p class="network-title">Réseau d'Entraide des Elites Bibliques</p>
+          <div class="line-header-grey"></div>
+        </div>
+      </header>
+
+      <!-- ligne séparatrice dorée pleine -->
+      <div class="separator-gold"></div>
+
+      <!-- ═══════════════ TITRE ═══════════════ -->
+      <section class="title-block" aria-labelledby="certificate-title">
+        <h1 id="certificate-title">CERTIFICAT</h1>
+        <p class="subtitle">DE DISCIPLE - DEB Promo04</p>
+        <div class="line-gold-bottom"></div>
+      </section>
+
+      <!-- ═══════════════ MOYENNE ═══════════════ -->
+      <section class="moyenne-block" aria-label="Moyenne générale">
+        <p class="moyenne-label">Moyenne Générale</p>
+        <p class="moyenne-value">{{moyenne}}/20</p>
+      </section>
+
+      <!-- ═══════════════ NOM ═══════════════ -->
+      <section class="recipient-block" aria-label="Académicien">
+        <h2 class="recipient-name">{{firstName}} {{lastName}}</h2>
+        <div class="line-name"></div>
+      </section>
+
+      <!-- ═══════════════ VERSET ═══════════════ -->
+      <section class="verse-block" aria-label="Citation biblique">
+        <p class="verse-text">
+          [...] Et comment entendront-ils parler du Seigneur, si personne ne l'annonce –<br />
+          Romains 10 : 14
+        </p>
+        <div class="line-verse-grey"></div>
+      </section>
+
+      <!-- ═══════════════ FOOTER ═══════════════ -->
+      <footer class="footer">
+        <div class="footer-left">
+          <p class="footer-city">Porto-Novo, le {{issueDate}}</p>
+          <div class="line-footer-left"></div>
+          <p class="footer-ref">Réf. : {{codeUnique}}</p>
+        </div>
+
+        <div class="footer-right">
+          <img class="signature" src="{{signatureImage}}" alt="Signature Emmanuella Faith S. ADELAKOUN" />
+          <p class="signer-name">Emmanuella Faith S. ADELAKOUN</p>
+          <p class="signer-title">Responsable Académie REEBI</p>
+        </div>
+      </footer>
+
+    </main>
+  </body>
+</html>

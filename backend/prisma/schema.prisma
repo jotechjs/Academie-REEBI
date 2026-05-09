@@ -1,0 +1,135 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model Learner {
+  id              String         @id @default(uuid()) @db.Uuid
+  institutionId   String?        @db.Uuid
+  firstName       String
+  lastName        String
+  identifiant    String?        @unique
+  email           String         @unique
+  role            UserRole       @default(LEARNER)
+  status          LearnerStatus @default(PENDING)
+  
+  // Academic results
+  moyenneCours   Float?
+  moyenne_ecrit  Float?
+  eval_oral      Float?
+  moyenneGenerale Float?
+  decisionJury   DecisionJury  @default(NON_ADMIS)
+  
+  createdAt       DateTime       @default(now())
+  updatedAt       DateTime      @updatedAt
+  sessionValues  SessionValue[]
+  experiences    Experience[]
+
+  @@index([institutionId])
+  @@index([lastName, firstName])
+  @@map("learners")
+}
+
+model Experience {
+  id        String   @id @default(uuid()) @db.Uuid
+  learnerId String   @db.Uuid
+  answer1   String   @db.Text
+  answer2   String   @db.Text
+  answer3   String   @db.Text
+  createdAt DateTime @default(now())
+  learner   Learner  @relation(fields: [learnerId], references: [id], onDelete: Cascade)
+
+  @@index([learnerId])
+  @@map("experiences")
+}
+
+model Session {
+  id            String          @id @default(uuid()) @db.Uuid
+  institutionId String?         @db.Uuid
+  name          String
+  description   String?
+  createdAt     DateTime        @default(now())
+  updatedAt     DateTime        @updatedAt
+  sheets        SessionSheet[]
+
+  @@index([institutionId])
+  @@index([name])
+  @@map("sessions")
+}
+
+model SessionSheet {
+  id            String          @id @default(uuid()) @db.Uuid
+  sessionId     String          @db.Uuid
+  name          String
+  createdAt     DateTime        @default(now())
+  updatedAt     DateTime        @updatedAt
+  session       Session         @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  columns       SessionColumn[]
+  values        SessionValue[]
+
+  @@index([sessionId])
+  @@map("session_sheets")
+}
+
+model SessionColumn {
+  id             String                @id @default(uuid()) @db.Uuid
+  sessionSheetId String                @db.Uuid
+  name           String
+  dataType       SessionColumnDataType
+  position       Int                   @default(0)
+  createdAt      DateTime              @default(now())
+  updatedAt      DateTime              @updatedAt
+  sheet          SessionSheet          @relation(fields: [sessionSheetId], references: [id], onDelete: Cascade)
+  values         SessionValue[]
+
+  @@unique([sessionSheetId, name])
+  @@unique([id, sessionSheetId])
+  @@index([sessionSheetId, position])
+  @@map("session_columns")
+}
+
+model SessionValue {
+  id              String        @id @default(uuid()) @db.Uuid
+  sessionSheetId  String        @db.Uuid
+  sessionColumnId String        @db.Uuid
+  learnerId       String        @db.Uuid
+  value           String?
+  createdAt       DateTime      @default(now())
+  updatedAt       DateTime      @updatedAt
+  learner         Learner       @relation(fields: [learnerId], references: [id], onDelete: Cascade)
+  sheet           SessionSheet  @relation(fields: [sessionSheetId], references: [id], onDelete: Cascade)
+  sessionColumn   SessionColumn @relation(fields: [sessionColumnId, sessionSheetId], references: [id, sessionSheetId], onDelete: Cascade)
+
+  @@unique([sessionSheetId, sessionColumnId, learnerId])
+  @@index([learnerId])
+  @@index([sessionSheetId, learnerId])
+  @@index([sessionSheetId, sessionColumnId])
+  @@map("session_values")
+}
+
+enum SessionColumnDataType {
+  TEXT
+  NUMBER
+  BOOLEAN
+  DATE
+}
+
+enum LearnerStatus {
+  PENDING
+  ADMITTED
+  REJECTED
+}
+
+enum DecisionJury {
+  ADMIS
+  NON_ADMIS
+}
+
+enum UserRole {
+  ADMIN
+  LEARNER
+}
