@@ -13,6 +13,9 @@
     "db:down": "docker compose -f docker-compose.dev.yml down",
     "db:logs": "docker compose -f docker-compose.dev.yml logs -f postgres"
   },
+  "prisma": {
+    "seed": "ts-node --project tsconfig.seed.json prisma/seed.ts"
+  },
   "keywords": [
     "nestjs",
     "prisma",
