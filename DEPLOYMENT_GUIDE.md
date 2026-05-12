@@ -21,7 +21,7 @@
 ```
 NODE_ENV=production
 PORT=3000
-DATABASE_URL=postgresql://postgres:[VOTRE-MOT-DE-PASSE]@db.[VOTRE-PROJET].supabase.co:5432/postgres?schema=public&sslmode=require
+DATABASE_URL=postgresql://postgres.[VOTRE-PROJET-REF]:[VOTRE-MOT-DE-PASSE]@aws-0-eu-west-1.pooler.supabase.com:5432/postgres?sslmode=require&schema=public
 JWT_SECRET=reebi_secret_key_2024_change_in_production
 JWT_EXPIRATION=1d
 ADMIN_ACCESS_CODE=REEBI2026
@@ -31,8 +31,9 @@ ADMIN_ACCESS_CODE=REEBI2026
 1. Aller sur https://supabase.com
 2. Sélectionner votre projet
 3. Aller dans Settings → Database
-4. Copier la valeur sous "Connection string"
-5. Remplacer `[VOTRE-MOT-DE-PASSE]` par votre mot de passe
+4. Choisir la connection string du `Session pooler` en IPv4
+5. Utiliser l'utilisateur `postgres.<PROJECT_REF>`
+6. Remplacer `[VOTRE-MOT-DE-PASSE]` par votre mot de passe
 
 ### Commandes de déploiement Render:
 - **Build Command**: `npm install && npm run build`
@@ -119,7 +120,7 @@ curl -X POST https://academie-reebi-backend.onrender.com/auth/admin/login \
 
 ### Si le backend ne démarre pas:
 1. Vérifier les logs sur Render Dashboard
-2. Vérifier que DATABASE_URL est correct
+2. Vérifier que DATABASE_URL utilise bien le pooler IPv4 Supabase
 3. Vérifier que `npm run build` fonctionne en local
 
 ### Si le login échoue:
