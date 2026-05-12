@@ -3,6 +3,9 @@
   "version": "1.0.0",
   "description": "Backend foundation for REEBI academic platform",
   "main": "dist/main.js",
+  "prisma": {
+    "seed": "ts-node prisma/seed.ts"
+  },
   "scripts": {
     "build": "tsc -p tsconfig.build.json",
     "start": "node dist/main.js",
@@ -10,6 +13,7 @@
     "start:dev": "ts-node-dev --respawn --transpile-only --ignore-watch node_modules src/main.ts",
     "prisma:migrate": "prisma migrate dev",
     "prisma:generate": "prisma generate",
+    "prisma:seed": "ts-node prisma/seed.ts",
     "db:up": "docker compose -f docker-compose.dev.yml up -d postgres",
     "db:down": "docker compose -f docker-compose.dev.yml down",
     "db:logs": "docker compose -f docker-compose.dev.yml logs -f postgres"
