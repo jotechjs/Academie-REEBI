@@ -16,7 +16,8 @@
     "strictNullChecks": true,
     "moduleResolution": "node",
     "skipLibCheck": true,
-    "ignoreDeprecations": "6.0"
+    "ignoreDeprecations": "6.0",
+    "types": ["node"]
   },
   "include": ["src/**/*.ts"],
   "exclude": ["node_modules", "dist"]
