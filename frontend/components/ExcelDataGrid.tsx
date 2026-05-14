@@ -75,6 +75,8 @@ export default function ExcelDataGrid({ sheetId }: ExcelDataGridProps) {
     }
   }, [sheetId, fetchData]);
 
+  const LEARNER_NAME_KEY = '___learner_name_display___';
+
   const handleCellChange = (learnerId: string, columnId: string, value: string) => {
     setLocalValues(prev => ({
       ...prev,
@@ -85,17 +87,19 @@ export default function ExcelDataGrid({ sheetId }: ExcelDataGridProps) {
   const handleCellBlur = async (learnerId: string, columnId: string, value: string) => {
     if (!data) return;
     
-    // Find original value to avoid unnecessary updates
+    if (columnId === LEARNER_NAME_KEY) {
+      return;
+    }
+    
     const originalValueObj = data.values.find((v) => v.learnerId === learnerId && v.sessionColumnId === columnId);
     const originalValue = originalValueObj ? originalValueObj.value : '';
 
-    if (originalValue === value) return; // No change
+    if (originalValue === value) return;
 
     try {
       setSaving(true);
       await updateSheetValue(sheetId, { learnerId, sessionColumnId: columnId, value });
       
-      // Update original data state so we know it's saved
       setData((prev) => {
         if (!prev) return null;
         const newValues = [...prev.values];
@@ -109,7 +113,6 @@ export default function ExcelDataGrid({ sheetId }: ExcelDataGridProps) {
       });
     } catch (err) {
       console.error('Error saving cell:', err);
-      // Revert on error
       setLocalValues(prev => ({
         ...prev,
         [`${learnerId}_${columnId}`]: originalValue
@@ -288,11 +291,27 @@ export default function ExcelDataGrid({ sheetId }: ExcelDataGridProps) {
             )}
           </thead>
           <tbody>
-            {learners.map((learner, index) => (
+            {learners.map((learner, index) => {
+              const defaultDisplayName = `${learner.lastName} ${learner.firstName}`;
+              const nameColumnId = LEARNER_NAME_KEY;
+              const storedNameValue = localValues[`${learner.id}_${nameColumnId}`];
+              const displayValue = storedNameValue !== undefined ? storedNameValue : defaultDisplayName;
+              
+              return (
               <tr key={learner.id} className="hover:bg-blue-50/30 transition-colors">
-                <td className="px-4 py-2 border-b border-r border-slate-200 bg-white sticky left-0 z-10 font-medium text-slate-900 flex items-center space-x-3 text-sm">
-                  <span className="text-slate-400 text-xs w-5">{index + 1}.</span>
-                  <span>{learner.lastName} {learner.firstName}</span>
+                <td className="px-4 py-2 border-b border-r border-slate-200 bg-white sticky left-0 z-10 text-sm">
+                  <div className="flex items-center space-x-2">
+                    <span className="text-slate-400 text-xs w-5">{index + 1}.</span>
+                    <input
+                      type="text"
+                      value={displayValue}
+                      onChange={(e) => handleCellChange(learner.id, nameColumnId, e.target.value)}
+                      onBlur={(e) => handleCellBlur(learner.id, nameColumnId, e.target.value)}
+                      className="flex-1 px-2 py-1 outline-none focus:ring-2 focus:ring-inset focus:ring-blue-500 bg-transparent text-slate-700 font-medium transition-all min-h-touch"
+                      placeholder="Nom"
+                      title="Vous pouvez personnaliser le nom affiché dans cette feuille. Le nom réel de l'apprenant resteinchangé dans le système."
+                    />
+                  </div>
                 </td>
                 {data.columns.map((col) => {
                   const cellKey = `${learner.id}_${col.id}`;
@@ -310,7 +329,8 @@ export default function ExcelDataGrid({ sheetId }: ExcelDataGridProps) {
                   );
                 })}
               </tr>
-            ))}
+              );
+            })}
             {learners.length === 0 && (
               <tr>
                 <td colSpan={data.columns.length + 1} className="px-4 py-8 text-center text-slate-500 italic">
@@ -370,10 +390,24 @@ export default function ExcelDataGrid({ sheetId }: ExcelDataGridProps) {
         )}
 
         {/* Learner Cards */}
-        {learners.map((learner, index) => (
+        {learners.map((learner, index) => {
+          const defaultDisplayName = `${learner.lastName} ${learner.firstName}`;
+          const nameColumnId = LEARNER_NAME_KEY;
+          const storedNameValue = localValues[`${learner.id}_${nameColumnId}`];
+          const displayValue = storedNameValue !== undefined ? storedNameValue : defaultDisplayName;
+          
+          return (
           <div key={learner.id} className="bg-white rounded-lg border border-slate-200 p-4 shadow-sm hover:shadow-md transition-shadow">
-            <div className="font-semibold text-slate-900 mb-4 text-base pb-3 border-b border-slate-100">
-              <span className="text-slate-400 text-sm">#{index + 1}</span> {learner.firstName} {learner.lastName}
+            <div className="flex items-center gap-2 mb-4 pb-3 border-b border-slate-100">
+              <span className="text-slate-400 text-sm">#{index + 1}</span>
+              <input
+                type="text"
+                value={displayValue}
+                onChange={(e) => handleCellChange(learner.id, nameColumnId, e.target.value)}
+                onBlur={(e) => handleCellBlur(learner.id, nameColumnId, e.target.value)}
+                className="flex-1 font-semibold text-slate-900 text-base bg-transparent border-none outline-none focus:ring-2 focus:ring-inset focus:ring-blue-500 rounded px-1 -mx-1 py-0.5"
+                placeholder="Nom"
+              />
             </div>
             <div className="space-y-3">
               {data.columns.map((col) => {
@@ -406,7 +440,8 @@ export default function ExcelDataGrid({ sheetId }: ExcelDataGridProps) {
               })}
             </div>
           </div>
-        ))}
+          );
+        })}
 
         {learners.length === 0 && (
           <div className="p-8 text-center text-slate-500 italic bg-white rounded-lg border border-dashed border-slate-300">

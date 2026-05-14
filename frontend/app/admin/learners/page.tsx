@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { getLearners, deleteLearner } from '@/services/api';
 import { UserPlus, Search, MoreHorizontal, Trash2, Loader2 } from 'lucide-react';
 import CreateLearnerModal from '@/components/CreateLearnerModal';
@@ -15,23 +15,27 @@ export default function LearnersPage() {
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [deleting, setDeleting] = useState<string | null>(null);
 
-  const fetchLearners = async () => {
+  const fetchLearners = useCallback(async () => {
+    let isMounted = true; // eslint-disable-line prefer-const
     try {
       setLoading(true);
       const { data } = await getLearners();
+      if (!isMounted) return;
       setLearners(data);
     } catch (error) {
       console.error('Failed to fetch learners', error);
     } finally {
-      setLoading(false);
+      if (isMounted) setLoading(false);
     }
-  };
+  }, []);
 
   useEffect(() => {
+    let cancelled = false;
     if (user && user.role === 'ADMIN') {
-      fetchLearners();
+      fetchLearners().then(() => { cancelled = true; });
     }
-  }, [user]);
+    return () => { cancelled = true; };
+  }, [fetchLearners, user]);
 
   if (authLoading) {
     return (

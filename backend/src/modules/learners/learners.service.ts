@@ -15,15 +15,14 @@ export class LearnersService {
   async getDashboardStats(learnerId: string) {
     const stats = await this.sessionsService.getLearnerStats(learnerId);
     
-    // Format the response for the frontend
-    // We expect sheets like 'Presence_Globale', 'Contrôle cahiers', 'Liste_Academiciens'
-    
     const presenceSheet = stats['Presence_Globale'] || { data: {} };
     const rapportsSheet = stats['Contrôle cahiers'] || { data: {} };
     const recapSheet = stats['Liste_Academiciens'] || { data: {} };
 
-    // Helper to extract numeric values or default to 0
     const getNum = (val: any) => parseFloat(val) || 0;
+
+    const rawObservation = recapSheet.data['Observation'] || '';
+    const normalizedObservation = rawObservation.trim().toLowerCase();
 
     return {
       presence: {
@@ -50,7 +49,7 @@ export class LearnersService {
         evalEcrite: getNum(recapSheet.data['Evaluation Ecrite']),
         evalOrale: getNum(recapSheet.data['Evaluation Orale']),
         decisionJury: recapSheet.data['Statut'] || 'PENDING',
-        observation: recapSheet.data['Observation'] || null,
+        observation: normalizedObservation,
         codeAttestation: recapSheet.data['Code Attestation'] || recapSheet.data['codeAttestation'] || null
       }
     };

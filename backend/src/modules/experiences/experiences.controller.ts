@@ -22,6 +22,15 @@ export class ExperiencesController {
     return await this.experiencesService.findAll();
   }
 
+  @Get('stats')
+  @UseGuards(JwtAuthGuard)
+  async getStats(@CurrentUser() user: any) {
+    if (user.role !== UserRole.ADMIN) {
+      return { error: 'Unauthorized' };
+    }
+    return await this.experiencesService.getStats();
+  }
+
   @Delete(':id')
   @UseGuards(JwtAuthGuard)
   async delete(@Param('id') experienceId: string, @CurrentUser() user: any) {

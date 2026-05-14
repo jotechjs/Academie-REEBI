@@ -38,5 +38,6 @@ export const deleteColumn = (sheetId: string, columnId: string) =>
 export const getExperiences = () => api.get('/experiences');
 export const createExperience = (data: any) => api.post('/experiences', data);
 export const deleteExperience = (id: string) => api.delete(`/experiences/${id}`);
+export const getExperiencesStats = () => api.get('/experiences/stats');
 
 export default api;

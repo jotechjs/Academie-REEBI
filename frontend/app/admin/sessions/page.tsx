@@ -19,12 +19,13 @@ export default function SessionsPage() {
   const [activeSheetId, setActiveSheetId] = useState<string | null>(null);
 
   const fetchSessions = useCallback(async () => {
+    let isMounted = true;
     try {
       setLoading(true);
       const { data } = await getSessions();
+      if (!isMounted) return;
       setSessions(data);
 
-      // Auto-select first session if none selected and data exists
       if (data.length > 0 && !activeSessionId) {
         const firstSession = data[0];
         setActiveSessionId(firstSession.id);
@@ -32,10 +33,8 @@ export default function SessionsPage() {
           setActiveSheetId(firstSession.sheets[0].id);
         }
       } else if (data.length > 0 && activeSessionId) {
-        // Refresh active session and sheet
         const currentSession = data.find((s: any) => s.id === activeSessionId);
         if (currentSession && currentSession.sheets && currentSession.sheets.length > 0) {
-          // Keep active sheet if it still exists, else pick first
           const sheetExists = currentSession.sheets.find((s: any) => s.id === activeSheetId);
           if (!sheetExists) {
             setActiveSheetId(currentSession.sheets[0].id);
@@ -47,14 +46,17 @@ export default function SessionsPage() {
     } catch (error) {
       console.error('Failed to fetch sessions', error);
     } finally {
-      setLoading(false);
+      if (isMounted) setLoading(false);
     }
+    return () => { isMounted = false; };
   }, [activeSessionId, activeSheetId]);
 
   useEffect(() => {
+    let cancelled = false;
     if (user && user.role === 'ADMIN') {
-      fetchSessions();
+      fetchSessions().then(() => { cancelled = true; });
     }
+    return () => { cancelled = true; };
   }, [fetchSessions, user]);
 
   if (authLoading) {

@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import {
   MessageSquare,
   Calendar,
@@ -19,23 +19,27 @@ export default function ExperiencesPage() {
   const [loading, setLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState('');
 
-  const fetchExperiences = async () => {
+  const fetchExperiences = useCallback(async () => {
+    let isMounted = true; // eslint-disable-line prefer-const
     try {
       setLoading(true);
       const response = await api.get('/experiences');
+      if (!isMounted) return;
       setExperiences(response.data);
     } catch (error) {
       console.error('Failed to fetch experiences', error);
     } finally {
-      setLoading(false);
+      if (isMounted) setLoading(false);
     }
-  };
+  }, []);
 
   useEffect(() => {
+    let cancelled = false;
     if (user && user.role === 'ADMIN') {
-      fetchExperiences();
+      fetchExperiences().then(() => { cancelled = true; });
     }
-  }, [user]);
+    return () => { cancelled = true; };
+  }, [fetchExperiences, user]);
 
   if (authLoading) {
     return (

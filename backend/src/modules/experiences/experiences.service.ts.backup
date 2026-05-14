@@ -15,7 +15,6 @@ export class ExperiencesService {
     });
   }
 
-
   async findAll() {
     return this.prisma.experience.findMany({
       include: {
@@ -34,46 +33,9 @@ export class ExperiencesService {
     });
   }
 
-
-
   async delete(experienceId: string) {
     return this.prisma.experience.delete({
       where: { id: experienceId },
     });
   }
-
-  async getStats() {
-    const totalLearners = 24;
-    const totalReceived = await this.prisma.experience.count();
-    const pending = Math.max(0, totalLearners - totalReceived);
-
-    const recentActivities = await this.prisma.experience.findMany({
-      include: {
-        learner: {
-          select: {
-            id: true,
-            firstName: true,
-            lastName: true,
-          },
-        },
-      },
-      orderBy: {
-        createdAt: 'desc',
-      },
-      take: 10,
-    });
-
-    return {
-      totalLearners,
-      totalReceived,
-      pending,
-      recentActivities: recentActivities.map(exp => ({
-        id: exp.id,
-        learnerName: `${exp.learner.firstName} ${exp.learner.lastName}`,
-        learnerInitials: `${exp.learner.firstName.charAt(0)}${exp.learner.lastName.charAt(0)}`.toUpperCase(),
-        createdAt: exp.createdAt,
-      })),
-    };
-  }
-
 }

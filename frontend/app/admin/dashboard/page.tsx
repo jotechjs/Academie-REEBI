@@ -1,14 +1,71 @@
 'use client';
 
-import { Users, MessageSquare, BookOpen, Clock, Loader2 } from 'lucide-react';
+import { Users, MessageSquare, BookOpen, Clock, Loader2, RefreshCw } from 'lucide-react';
 import { useRouter } from 'next/navigation';
 import { useAuth } from '@/hooks/useAuth';
+import { useState, useEffect } from 'react';
+import { getExperiencesStats } from '@/services/api';
+
+interface Activity {
+  id: string;
+  learnerName: string;
+  learnerInitials: string;
+  createdAt: string;
+}
+
+interface StatsData {
+  totalLearners: number;
+  totalReceived: number;
+  pending: number;
+  recentActivities: Activity[];
+}
+
+function formatRelativeTime(dateString: string): string {
+  const date = new Date(dateString);
+  const now = new Date();
+  const diffMs = now.getTime() - date.getTime();
+  const diffMins = Math.floor(diffMs / 60000);
+  const diffHours = Math.floor(diffMins / 60);
+  const diffDays = Math.floor(diffHours / 24);
+
+  if (diffMins < 1) return 'À l\'instant';
+  if (diffMins < 60) return `Il y a ${diffMins} minute${diffMins > 1 ? 's' : ''}`;
+  if (diffHours < 24) return `Il y a ${diffHours} heure${diffHours > 1 ? 's' : ''}`;
+  if (diffDays < 7) return `Il y a ${diffDays} jour${diffDays > 1 ? 's' : ''}`;
+  return `Le ${date.toLocaleDateString('fr-FR')}`;
+}
 
 export default function Dashboard() {
-  const { user, loading } = useAuth();
+  const { user, loading: authLoading } = useAuth();
   const router = useRouter();
+  const [stats, setStats] = useState<StatsData | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
 
-  if (loading) {
+  const fetchStats = async () => {
+    try {
+      const response = await getExperiencesStats();
+      setStats(response.data);
+    } catch (error) {
+      console.error('Failed to fetch stats', error);
+    } finally {
+      setLoading(false);
+      setRefreshing(false);
+    }
+  };
+
+  useEffect(() => {
+    if (user && user.role === 'ADMIN') {
+      fetchStats();
+    }
+  }, [user]);
+
+  const handleRefresh = () => {
+    setRefreshing(true);
+    fetchStats();
+  };
+
+  if (authLoading || loading) {
     return (
       <div className="min-h-screen flex items-center justify-center">
         <Loader2 className="animate-spin text-blue-600" size={48} />
@@ -18,22 +75,32 @@ export default function Dashboard() {
 
   if (!user || user.role !== 'ADMIN') return null;
 
-  const stats = [
-    { name: 'Total Apprenants', value: '128', icon: Users, color: 'bg-blue-500' },
-    { name: 'Sessions Actives', value: '12', icon: BookOpen, color: 'bg-purple-500' },
-    { name: 'Témoignages Reçus', value: '24', icon: MessageSquare, color: 'bg-green-500' },
-    { name: 'En attente', value: '8', icon: Clock, color: 'bg-orange-500' },
+  const statsData = [
+    { name: 'Total Apprenants', value: stats?.totalLearners || 24, icon: Users, color: 'bg-blue-500' },
+    { name: 'Sessions Actives', value: 3, icon: BookOpen, color: 'bg-purple-500' },
+    { name: 'Témoignages Reçus', value: stats?.totalReceived || 0, icon: MessageSquare, color: 'bg-green-500' },
+    { name: 'En attente', value: stats?.pending || 0, icon: Clock, color: 'bg-orange-500' },
   ];
 
   return (
     <div>
-      <div className="mb-8">
-        <h1 className="text-3xl font-bold text-slate-900">Tableau de bord</h1>
-        <p className="text-slate-500 mt-1">Aperçu de l'activité de la plateforme REEBI</p>
+      <div className="mb-8 flex items-center justify-between">
+        <div>
+          <h1 className="text-3xl font-bold text-slate-900">Tableau de bord</h1>
+          <p className="text-slate-500 mt-1">Aperçu de l'activité de la plateforme REEBI</p>
+        </div>
+        <button
+          onClick={handleRefresh}
+          disabled={refreshing}
+          className="flex items-center gap-2 px-4 py-2 bg-white border border-slate-200 rounded-lg hover:bg-slate-50 transition-colors text-sm font-medium text-slate-600 disabled:opacity-50"
+        >
+          <RefreshCw size={16} className={refreshing ? 'animate-spin' : ''} />
+          {refreshing ? 'Actualisation...' : 'Actualiser'}
+        </button>
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-12">
-        {stats.map((stat) => (
+        {statsData.map((stat) => (
           <div key={stat.name} className="bg-white p-6 rounded-2xl shadow-sm border border-slate-100 flex items-center space-x-4">
             <div className={`${stat.color} p-3 rounded-xl text-white`}>
               <stat.icon size={24} />
@@ -50,20 +117,27 @@ export default function Dashboard() {
         <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-100 min-h-[300px]">
           <h2 className="text-xl font-bold text-slate-900 mb-4">Activité Récente</h2>
           <div className="space-y-4">
-            {[1, 2, 3, 4].map((i) => (
-              <div key={i} className="flex items-center justify-between py-3 border-b border-slate-50 last:border-0">
-                <div className="flex items-center space-x-3">
-                  <div className="w-10 h-10 rounded-full bg-slate-100 flex items-center justify-center text-slate-500 font-bold uppercase">
-                    {String.fromCharCode(64 + i)}
+            {stats?.recentActivities && stats.recentActivities.length > 0 ? (
+              stats.recentActivities.map((activity, index) => (
+                <div key={activity.id} className="flex items-center justify-between py-3 border-b border-slate-50 last:border-0">
+                  <div className="flex items-center space-x-3">
+                    <div className="w-10 h-10 rounded-full bg-slate-100 flex items-center justify-center text-slate-500 font-bold uppercase">
+                      {activity.learnerInitials}
+                    </div>
+                    <div>
+                      <p className="text-sm font-medium text-slate-900">{activity.learnerName}</p>
+                      <p className="text-xs text-slate-500">{formatRelativeTime(activity.createdAt)}</p>
+                    </div>
                   </div>
-                  <div>
-                    <p className="text-sm font-medium text-slate-900">Nouveau Témoignage Reçu</p>
-                    <p className="text-xs text-slate-500">Il y a {i} heure(s)</p>
-                  </div>
+                  <span className="text-xs font-medium px-2.5 py-0.5 rounded-full bg-green-50 text-green-600">Nouveau</span>
                 </div>
-                <span className="text-xs font-medium px-2.5 py-0.5 rounded-full bg-green-50 text-green-600">Nouveau</span>
+              ))
+            ) : (
+              <div className="text-center py-8 text-slate-400">
+                <MessageSquare size={32} className="mx-auto mb-2 opacity-50" />
+                <p>Aucune activité récente</p>
               </div>
-            ))}
+            )}
           </div>
         </div>
 

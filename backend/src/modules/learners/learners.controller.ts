@@ -69,7 +69,8 @@ export class LearnersController {
   ) {
     const stats = await this.learnersService.getDashboardStats(user.userId);
     
-    if (stats.global.observation !== 'certifié') {
+    const normalizedObs = (stats.global.observation || '').trim().toLowerCase();
+    if (normalizedObs !== 'certifié') {
       return res.status(403).json({
         error: 'Not authorized to generate certificate',
       });

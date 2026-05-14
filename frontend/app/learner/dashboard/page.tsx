@@ -131,7 +131,7 @@ export default function LearnerDashboard() {
                 <User size={16} />
               </div>
               <div className="flex flex-col">
-                <span className="text-xs md:text-sm font-bold text-slate-800 leading-none">{user?.firstName} {user?.lastName}</span>
+                <span className="text-xs md:text-sm font-bold text-slate-800 leading-none">{user?.lastName} {user?.firstName}</span>
                 <span className="text-[10px] font-medium text-slate-500">Promotion 4</span>
               </div>
             </div>
@@ -319,6 +319,11 @@ function ResultSection({ global, learner }: ResultSectionProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const certificateRef = useRef<HTMLDivElement>(null);
   const [iframeScale, setIframeScale] = useState(1);
+
+  console.log('[DEBUG] global.observation:', global.observation, 'global.codeAttestation:', global.codeAttestation);
+  const normalizedObservation = (global.observation || '').trim().toLowerCase();
+  const isCertified = normalizedObservation === 'certifié';
+  const isNotCertified = normalizedObservation === 'non certifié';
 
   useEffect(() => {
     const updateScale = () => {
@@ -543,13 +548,26 @@ function ResultSection({ global, learner }: ResultSectionProps) {
     }
   };
 
-  if (global.observation !== 'certifié') {
+if (isNotCertified) {
     return (
       <section className="bg-white rounded-[2.5rem] p-10 shadow-xl shadow-slate-200/50 border border-slate-100 mb-10">
-        <h2 className="text-2xl font-black text-slate-900 tracking-tight mb-6">Résultat de l’académie</h2>
+        <h2 className="text-2xl font-black text-slate-900 tracking-tight mb-6">Résultat de l'académie</h2>
         <div className="bg-slate-50 rounded-3xl p-8 border border-slate-100 text-center">
           <p className="text-lg text-slate-600 font-medium">
-            Nous vous encourageons à poursuivre vos efforts et à rester constant.
+            Nous vous encourageons à poursuivre vos efforts et à rester constants.
+          </p>
+        </div>
+      </section>
+    );
+  }
+
+  if (!isCertified) {
+    return (
+      <section className="bg-white rounded-[2.5rem] p-10 shadow-xl shadow-slate-200/50 border border-slate-100 mb-10">
+        <h2 className="text-2xl font-black text-slate-900 tracking-tight mb-6">Résultat de l'académie</h2>
+        <div className="bg-slate-50 rounded-3xl p-8 border border-slate-100 text-center">
+          <p className="text-lg text-slate-600 font-medium">
+            Nous vous encourageons à poursuivre vos efforts et à rester constants.
           </p>
         </div>
       </section>
