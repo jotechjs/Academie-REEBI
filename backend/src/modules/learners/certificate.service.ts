@@ -11,26 +11,29 @@ interface CertificateData {
   issueDate?: string;
 }
 
+const isProduction = process.env.NODE_ENV === 'production';
+
 @Injectable()
 export class CertificateService {
+  private async getTemplatePath(): Promise<string> {
+    const rootDir = process.cwd();
+    const templatePath = path.join(rootDir, 'templates/attestation/certificate-template.html');
+    console.log('[PDF] Template path résolu:', templatePath);
+    console.log('[PDF] Template existe:', fs.existsSync(templatePath));
+    return templatePath;
+  }
+
   private async generateHTML(data: CertificateData): Promise<string> {
-    const rootDir = path.resolve(__dirname, '../../..');
-    const templatePath = path.join(
-      rootDir,
-      'templates/attestation/certificate-template.html'
-    );
-    const stylesPath = path.join(
-      rootDir,
-      'templates/attestation/styles.css'
-    );
-    const logoPath = path.join(
-      rootDir,
-      'templates/attestation/assets/logo-reebi.png'
-    );
-    const signaturePath = path.join(
-      rootDir,
-      'templates/attestation/assets/signature.png'
-    );
+    const templatePath = await this.getTemplatePath();
+    const rootDir = process.cwd();
+    
+    const stylesPath = path.join(rootDir, 'templates/attestation/styles.css');
+    const logoPath = path.join(rootDir, 'templates/attestation/assets/logo-reebi.png');
+    const signaturePath = path.join(rootDir, 'templates/attestation/assets/signature.png');
+
+    console.log('[PDF] Styles path:', stylesPath, '- Existe:', fs.existsSync(stylesPath));
+    console.log('[PDF] Logo path:', logoPath, '- Existe:', fs.existsSync(logoPath));
+    console.log('[PDF] Signature path:', signaturePath, '- Existe:', fs.existsSync(signaturePath));
 
     try {
       let template = fs.readFileSync(templatePath, 'utf8');
@@ -38,16 +41,17 @@ export class CertificateService {
       const logoBase64 = fs.readFileSync(logoPath).toString('base64');
       const signatureBase64 = fs.readFileSync(signaturePath).toString('base64');
 
-      // Format the date
-      const issueDate =
-        data.issueDate ||
-        new Date().toLocaleDateString('fr-FR', {
-          day: 'numeric',
-          month: 'long',
-          year: 'numeric',
-        });
+      console.log('[PDF] Template chargé, taille:', template.length, 'bytes');
+      console.log('[PDF] Styles chargés, taille:', styles.length, 'bytes');
+      console.log('[PDF] Logo base64, taille:', logoBase64.length, 'bytes');
+      console.log('[PDF] Signature base64, taille:', signatureBase64.length, 'bytes');
 
-      // Note: Images are actually JPEGs despite .png extension
+      const issueDate = data.issueDate || new Date().toLocaleDateString('fr-FR', {
+        day: 'numeric',
+        month: 'long',
+        year: 'numeric',
+      });
+
       const replacements = {
         '{{firstName}}': data.firstName || '',
         '{{lastName}}': data.lastName || '',
@@ -62,7 +66,6 @@ export class CertificateService {
         template = template.split(key).join(value);
       });
 
-      // Inject styles into head and remove external link
       const injectStyles = `
         <style>
           ${styles}
@@ -96,45 +99,93 @@ export class CertificateService {
       template = template.replace('<link rel="stylesheet" href="./styles.css" />', '');
       template = template.replace('</head>', `${injectStyles}</head>`);
 
+      console.log('[PDF] HTML généré, taille totale:', template.length, 'bytes');
       return template;
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : String(error);
+      console.error('[PDF] ERREUR génération HTML:', errorMessage);
       throw new BadRequestException(`Failed to generate certificate HTML: ${errorMessage}`);
     }
   }
 
   async generatePDF(data: CertificateData): Promise<Buffer> {
-    const cacheDir = path.resolve(__dirname, '../../..', '.cache', 'pdfs');
-    const cacheFileName = `${data.codeAttestation || data.firstName + '_' + data.lastName}.pdf`;
-    const cacheFilePath = path.join(cacheDir, cacheFileName);
-
-    // 1. Ensure cache directory exists
-    if (!fs.existsSync(cacheDir)) {
-      fs.mkdirSync(cacheDir, { recursive: true });
-    }
-
-    // 2. Check cache first
-    if (fs.existsSync(cacheFilePath)) {
-      return fs.readFileSync(cacheFilePath);
+    // Désactiver le cache en production/serverless
+    const useCache = !isProduction && !process.env.VERCEL && !process.env.RENDER;
+    
+    let cacheFilePath: string | null = null;
+    
+    if (useCache) {
+      const cacheDir = path.resolve(process.cwd(), '.cache', 'pdfs');
+      const cacheFileName = `${data.codeAttestation || data.firstName + '_' + data.lastName}.pdf`;
+      cacheFilePath = path.join(cacheDir, cacheFileName);
+      
+      if (!fs.existsSync(cacheDir)) {
+        fs.mkdirSync(cacheDir, { recursive: true });
+      }
+      
+      if (fs.existsSync(cacheFilePath)) {
+        console.log('[PDF] Cache hit, lecture depuis:', cacheFilePath);
+        const cached = fs.readFileSync(cacheFilePath);
+        console.log('[PDF] Cache lu, taille:', cached.length, 'bytes');
+        return cached;
+      }
     }
 
     let browser;
     try {
+      console.log('[PDF] Démarrage génération PDF...');
+      console.log('[PDF] Environment:', isProduction ? 'PRODUCTION' : 'DEVELOPMENT');
+      console.log('[PDF] Utilisation cache:', useCache);
+      
       const html = await this.generateHTML(data);
+      console.log('[PDF] HTML prêt pour Puppeteer');
 
-      const executablePath = process.env.PUPPETEER_EXECUTABLE_PATH || '/usr/bin/google-chrome';
-      browser = await puppeteer.launch({
+      // Import dynamique de @sparticuz/chromium pour production
+      let launchOptions: any = {
         headless: true,
-        executablePath,
         args: [
           '--no-sandbox',
           '--disable-setuid-sandbox',
           '--disable-dev-shm-usage',
           '--font-render-hinting=none',
+          '--disable-gpu',
+          '--disable-software-rasterizer',
         ],
-      });
+      };
+
+      // En production, utiliser @sparticuz/chromium
+      if (isProduction || process.env.VERCEL || process.env.RENDER) {
+        try {
+          const chromium = require('@sparticuz/chromium');
+          chromium.setHeadlessMode = true;
+          chromium.setGraphicsMode = false;
+          
+          launchOptions.executablePath = await chromium.executablePath();
+          launchOptions.args = [...launchOptions.args, ...chromium.args];
+          
+          console.log('[PDF] Chromium serverless (@sparticuz) activé');
+        } catch (chromiumError) {
+          console.error('[PDF] ERREUR chargement @sparticuz/chromium:', (chromiumError as Error).message);
+          // Fallback: utiliser Puppeteer default sans executablePath (utilise bundled)
+          console.log('[PDF] Fallback: utilisation Puppeteer bundled');
+        }
+      } else {
+        // En local, utiliser l'exécutable système ou Puppeteer default
+        const customPath = process.env.PUPPETEER_EXECUTABLE_PATH;
+        if (customPath && fs.existsSync(customPath)) {
+          launchOptions.executablePath = customPath;
+          console.log('[PDF] Chrome custom:', customPath);
+        } else {
+          console.log('[PDF] Utilisation Puppeteer default (bundled)');
+        }
+      }
+
+      console.log('[PDF] Lancement Puppeteer...');
+      browser = await puppeteer.launch(launchOptions);
+      console.log('[PDF] Puppeteer lancé avec succès');
 
       const page = await browser.newPage();
+      console.log('[PDF] Page Puppeteer créée');
 
       await page.setViewport({
         width: 1122,
@@ -147,7 +198,8 @@ export class CertificateService {
         timeout: 30000,
       });
 
-      // Ensure all resources are rendered
+      console.log('[PDF] Contenu HTML injecté');
+
       await page.evaluate(async () => {
         const images = Array.from(document.images);
         await Promise.all(images.map(img => {
@@ -156,12 +208,12 @@ export class CertificateService {
             img.onload = img.onerror = res;
           });
         }));
-        // @ts-ignore
         if (document.fonts && document.fonts.ready) await document.fonts.ready;
       });
+      
+      console.log('[PDF] Images et fonts chargés');
 
-      // Extra wait to be 100% sure
-      await new Promise(res => setTimeout(res, 1000));
+      await new Promise(resolve => setTimeout(resolve, 1000));
 
       const pdfBufferRaw = await page.pdf({
         width: '1122px',
@@ -174,19 +226,28 @@ export class CertificateService {
       });
 
       const pdfBuffer = Buffer.from(pdfBufferRaw);
+      console.log('[PDF] PDF généré, taille buffer:', pdfBuffer.length, 'bytes');
 
-      // 3. Save to cache
-      fs.writeFileSync(cacheFilePath, pdfBuffer);
+      // Sauvegarder en cache uniquement si pas production et chemin valide
+      if (useCache && cacheFilePath) {
+        try {
+          fs.writeFileSync(cacheFilePath, pdfBuffer);
+          console.log('[PDF] Sauvegardé en cache:', cacheFilePath);
+        } catch (cacheError) {
+          console.warn('[PDF] Warning cache:', (cacheError as Error).message);
+        }
+      }
 
       return pdfBuffer;
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : String(error);
-      throw new BadRequestException(
-        `Failed to generate PDF: ${errorMessage}`
-      );
+      console.error('[PDF] ERREUR génération PDF:', errorMessage);
+      console.error('[PDF] Stack:', error instanceof Error ? error.stack : '');
+      throw new BadRequestException(`Failed to generate PDF: ${errorMessage}`);
     } finally {
       if (browser) {
         await browser.close();
+        console.log('[PDF] Puppeteer fermé');
       }
     }
   }

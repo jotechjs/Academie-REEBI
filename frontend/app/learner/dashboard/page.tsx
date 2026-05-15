@@ -460,6 +460,11 @@ function ResultSection({ global, learner }: ResultSectionProps) {
       if (response.ok) {
         // Get the PDF as a blob and download
         const pdfBlob = await response.blob();
+        console.log('[FRONTEND] PDF Blob size:', pdfBlob.size, 'bytes, type:', pdfBlob.type);
+        
+        if (pdfBlob.size === 0) {
+          throw new Error('Le PDF généré est vide - vérifiez les logs serveur');
+        }
         const url = window.URL.createObjectURL(pdfBlob);
         const link = document.createElement('a');
         link.href = url;

@@ -84,6 +84,10 @@ export class LearnersController {
     });
 
     res.setHeader('Content-Type', 'application/pdf');
+    res.setHeader('Content-Length', pdfBuffer.length);
+    res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
+    res.setHeader('Pragma', 'no-cache');
+    res.setHeader('Expires', '0');
     res.setHeader(
       'Content-Disposition',
       `attachment; filename="Attestation_REEBI_${user.firstName}_${user.lastName}.pdf"`,
