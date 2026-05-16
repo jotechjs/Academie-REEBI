@@ -68,9 +68,13 @@ export class LearnersController {
     @Res({ passthrough: true }) res: Response,
   ) {
     const stats = await this.learnersService.getDashboardStats(user.userId);
-    
-    const normalizedObs = (stats.global.observation || '').trim().toLowerCase();
-    if (normalizedObs !== 'certifié') {
+
+    const normalizedObs = (stats.global.observation || '')
+      .trim()
+      .toLowerCase()
+      .normalize('NFD')
+      .replace(/[\u0300-\u036f]/g, '');
+    if (normalizedObs !== 'certifie') {
       return res.status(403).json({
         error: 'Not authorized to generate certificate',
       });

@@ -15,42 +15,58 @@ export class LearnersService {
   async getDashboardStats(learnerId: string) {
     const stats = await this.sessionsService.getLearnerStats(learnerId);
     
-    const presenceSheet = stats['Presence_Globale'] || { data: {} };
-    const rapportsSheet = stats['Contrôle cahiers'] || { data: {} };
-    const recapSheet = stats['Liste_Academiciens'] || { data: {} };
-
     const getNum = (val: any) => parseFloat(val) || 0;
+    const getVal = (data: any, ...keys: string[]): any => {
+      for (const key of keys) {
+        if (data[key] !== undefined) return data[key];
+      }
+      return null;
+    };
 
-    const rawObservation = recapSheet.data['Observation'] || '';
-    const normalizedObservation = rawObservation.trim().toLowerCase();
+    const findSheetByKeys = (stats: Record<string, any>, ...keys: string[]) => {
+      for (const key of keys) {
+        if (stats[key]) return stats[key];
+      }
+      return { data: {} };
+    };
+
+    const presenceSheet = findSheetByKeys(stats, 'Presence_Globale', 'Présence Globale', 'Présence', 'Presence');
+    const rapportsSheet = findSheetByKeys(stats, 'Contrôle cahiers', 'Controle cahier', 'Rapports', 'Contrôle_Cahiers');
+    const recapSheet = findSheetByKeys(stats, 'Liste_Academiciens', 'Liste Academiciens', 'Liste Académiciens', 'Liste_des_Academiciens', 'Recap', 'Récapitulatif');
+
+    const rawObservation = getVal(recapSheet.data, 'Observation', 'observation') || '';
+    const normalizedObservation = rawObservation.trim().toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+
+    const admisEvalRaw = getVal(recapSheet.data, 'Admis pour évaluation', 'Admis pour evaluation', 'Admis pour évalue', 'Admis pour eval', 'Admis_Eval', 'Admis');
+    const admisEvaluations = admisEvalRaw === 'OUI' || admisEvalRaw === 'yes' || admisEvalRaw === 'true' || String(admisEvalRaw).toUpperCase().trim() === 'OUI';
 
     return {
       presence: {
-        totalPresence: getNum(presenceSheet.data['% Présence']),
-        totalAbsence: getNum(presenceSheet.data['Total Absences']),
-        note: getNum(presenceSheet.data['Notes sur 20']),
+        totalPresence: getNum(getVal(presenceSheet.data, '% Présence', '% Presence', 'presence', 'Presence')),
+        totalAbsence: getNum(getVal(presenceSheet.data, 'Total Absences', 'Total Absences', 'Absences', 'Absence')),
+        note: getNum(getVal(presenceSheet.data, 'Notes sur 20', 'Notes', 'Note')),
         dates: Object.keys(presenceSheet.data)
           .filter(k => k.match(/^\d{2}\/\d{2}$/) || k === '24-26/04')
           .map(k => ({ date: k, status: presenceSheet.data[k] === 'P' ? 'P' : 'A' }))
       },
       rapports: {
-        rendus: getNum(rapportsSheet.data['% Compte reçu']),
-        nonRendus: getNum(rapportsSheet.data['Total Compte Non']),
-        note: getNum(rapportsSheet.data['Notes sur 20']),
+        rendus: getNum(getVal(rapportsSheet.data, '% Compte reçu', '% Compte', 'Rendus', 'Rendu')),
+        nonRendus: getNum(getVal(rapportsSheet.data, 'Total Compte Non', 'Non Rendus', 'Non')),
+        note: getNum(getVal(rapportsSheet.data, 'Notes sur 20', 'Notes', 'Note')),
         dates: Object.keys(rapportsSheet.data)
           .filter(k => k.match(/^\d{2}\/\d{2}$/) || k === '24-26/04')
           .map(k => ({ date: k, status: rapportsSheet.data[k] === 'Fait' || rapportsSheet.data[k] === 'Rendu' ? 'Rendu' : 'Non Rendu' }))
       },
       global: {
-        notePresence: getNum(recapSheet.data['Préseance au cours']),
-        noteRapport: getNum(recapSheet.data['Compte rendu']),
-        moyenneCours: getNum(recapSheet.data['Moyenne Cours']),
-        admisEvaluations: recapSheet.data['Admis pour évaluation'] === 'OUI',
-        evalEcrite: getNum(recapSheet.data['Evaluation Ecrite']),
-        evalOrale: getNum(recapSheet.data['Evaluation Orale']),
-        decisionJury: recapSheet.data['Statut'] || 'PENDING',
+        notePresence: getNum(getVal(recapSheet.data, 'Préseance au cours', 'Presence au cours', 'Presence', 'Presence_Cours')),
+        noteRapport: getNum(getVal(recapSheet.data, 'Compte rendu', 'Compte_rendu', 'Rapport')),
+        moyenneCours: getNum(getVal(recapSheet.data, 'Moyenne Cours', 'Moyenne_Cours', 'Moyenne', 'moyenne')),
+        admisEvaluations: admisEvaluations,
+        evalEcrite: getNum(getVal(recapSheet.data, 'Evaluation Ecrite', 'Evaluation_Ecrite', 'Ecrit', 'Ecrit')),
+        evalOrale: getNum(getVal(recapSheet.data, 'Evaluation Orale', 'Evaluation_Oral', 'Orale', 'Oral')),
+        decisionJury: getVal(recapSheet.data, 'Statut', 'Decision', 'Decision Jury', 'Statut_Jury') || 'PENDING',
         observation: normalizedObservation,
-        codeAttestation: recapSheet.data['Code Attestation'] || recapSheet.data['codeAttestation'] || null
+        codeAttestation: getVal(recapSheet.data, 'Code Attestation', 'Code_Attestation', 'codeAttestation', 'Code') || null
       }
     };
   }
@@ -77,7 +93,7 @@ export class LearnersService {
     } catch (error) {
       if (error instanceof Prisma.PrismaClientKnownRequestError) {
         if (error.code === 'P2002') {
-          throw new ConflictException('Cet email est déjà utilisé par un autre apprenant');
+          throw new ConflictException('Cet email est déjà utilisé par un autre académicien');
         }
       }
       throw error;

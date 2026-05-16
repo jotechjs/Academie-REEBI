@@ -15,6 +15,20 @@ api.interceptors.request.use((config) => {
   return config;
 });
 
+api.interceptors.response.use(
+  (response) => response,
+  (error) => {
+    if (typeof window !== 'undefined' && error.response?.status === 401) {
+      localStorage.removeItem('reebi_token');
+      localStorage.removeItem('reebi_user');
+      const pathname = window.location.pathname;
+      const loginPath = pathname.startsWith('/admin') ? '/admin/login' : '/login';
+      window.location.href = loginPath;
+    }
+    return Promise.reject(error);
+  }
+);
+
 export const getLearners = () => api.get('/learners');
 export const createLearner = (data: any) => api.post('/learners', data);
 export const updateLearner = (id: string, data: any) => api.patch(`/learners/${id}`, data);
@@ -34,6 +48,8 @@ export const createColumn = (sheetId: string, data: { name: string, dataType: st
   api.post(`/sessions/sheets/${sheetId}/columns`, data);
 export const deleteColumn = (sheetId: string, columnId: string) =>
   api.delete(`/sessions/sheets/${sheetId}/columns/${columnId}`);
+export const deleteSheet = (sheetId: string) =>
+  api.delete(`/sessions/sheets/${sheetId}`);
 
 export const getExperiences = () => api.get('/experiences');
 export const createExperience = (data: any) => api.post('/experiences', data);

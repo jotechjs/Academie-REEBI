@@ -23,6 +23,11 @@ export class UpdateLearnerDto {
 
   @IsOptional()
   @IsString()
+  @MaxLength(100)
+  identifiant?: string;
+
+  @IsOptional()
+  @IsString()
   @MinLength(6)
   password?: string;
 

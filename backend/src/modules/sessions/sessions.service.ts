@@ -67,6 +67,17 @@ export class SessionsService {
     });
   }
 
+  async deleteSheet(sheetId: string): Promise<{ message: string }> {
+    await this.ensureSheetExists(sheetId);
+
+    // Cascade delete handles columns and values automatically via Prisma schema
+    await this.prisma.sessionSheet.delete({
+      where: { id: sheetId },
+    });
+
+    return { message: 'Feuille supprimée avec succès' };
+  }
+
   async deleteColumn(sheetId: string, columnId: string): Promise<{ message: string }> {
     await this.ensureSheetExists(sheetId);
     await this.ensureColumnExistsInSheet(sheetId, columnId);
@@ -132,111 +143,202 @@ export class SessionsService {
     };
   }
 
-  async importExcel(sessionId: string, fileBuffer: Buffer): Promise<void> {
+  /**
+   * Import an Excel file into a session.
+   * 
+   * BEHAVIOR: APPEND ONLY
+   * Each sheet in the Excel file becomes a NEW independent sheet in the session.
+   * Existing sheets/columns/values are NEVER modified.
+   */
+  async importExcel(sessionId: string, fileBuffer: Buffer): Promise<{ importedSheets: string[] }> {
     await this.ensureSessionExists(sessionId);
 
-    // Parse Excel file
+    // ── 1. Parse & validate Excel file ──────────────────────────────────
     let workbook: XLSX.WorkBook;
     try {
       workbook = XLSX.read(fileBuffer, { type: 'buffer' });
     } catch (e) {
-      throw new BadRequestException('Invalid Excel file format');
+      throw new BadRequestException('Format de fichier Excel invalide. Veuillez fournir un fichier .xlsx ou .xls valide.');
     }
 
-    const learners = await this.prisma.learner.findMany();
+    if (!workbook.SheetNames || workbook.SheetNames.length === 0) {
+      throw new BadRequestException('Le fichier Excel ne contient aucune feuille.');
+    }
 
-    // Iterate over each sheet
+    // ── 2. Pre-fetch existing sheet names to avoid collisions ───────────
+    const existingSheetNames = new Set(
+      (await this.prisma.sessionSheet.findMany({
+        where: { sessionId },
+        select: { name: true },
+      })).map(s => s.name)
+    );
+
+    // ── 3. Pre-fetch all learners for name matching ────────────────────
+    const learners = await this.prisma.learner.findMany();
+    if (learners.length === 0) {
+      throw new BadRequestException(
+        'Aucun académicien trouvé dans la base de données. Veuillez d\'abord importer des académiciens.'
+      );
+    }
+
+    const importedSheets: string[] = [];
+
+    // ── 4. Iterate over each sheet in the Excel file ───────────────────
     for (const sheetName of workbook.SheetNames) {
       const sheetData = workbook.Sheets[sheetName];
       const jsonData = XLSX.utils.sheet_to_json<string[]>(sheetData, { header: 1 });
 
-      if (jsonData.length === 0) continue;
+      // Skip empty sheets
+      if (!jsonData || jsonData.length < 2) continue; // Need at least header + 1 row
 
-      // Ensure the sheet exists in the session
-      let sessionSheet = await this.prisma.sessionSheet.findFirst({
-        where: { sessionId, name: sheetName }
+      // ── Generate a UNIQUE sheet name (avoid collision) ────────────
+      const uniqueSheetName = this.generateUniqueName(sheetName, existingSheetNames);
+
+      // ── Create NEW sheet (always create, never reuse) ─────────────
+      const newSheet = await this.prisma.sessionSheet.create({
+        data: {
+          sessionId,
+          name: uniqueSheetName,
+        },
       });
 
-      if (!sessionSheet) {
-        sessionSheet = await this.prisma.sessionSheet.create({
-          data: { sessionId, name: sheetName }
-        });
-      }
+      // Track the new name in the set so nested duplicates also get unique names
+      existingSheetNames.add(uniqueSheetName);
 
+      // ── 5. Create columns from header row (always create new) ──────
       const headerRow = jsonData[0];
       const columnIds: string[] = [];
 
-      // Create or find columns
       for (let i = 0; i < headerRow.length; i++) {
-        const colName = headerRow[i];
-        if (!colName) {
-          columnIds.push('');
-          continue;
+        const rawName = headerRow[i];
+
+        // Validate column name
+        let colName: string;
+        if (rawName === undefined || rawName === null || String(rawName).trim() === '') {
+          colName = `Colonne ${i + 1}`;
+        } else {
+          colName = String(rawName).trim();
         }
 
-        let column = await this.prisma.sessionColumn.findUnique({
-          where: { sessionSheetId_name: { sessionSheetId: sessionSheet.id, name: colName.toString() } }
-        });
-
-        if (!column) {
-          column = await this.prisma.sessionColumn.create({
+        try {
+          const column = await this.prisma.sessionColumn.create({
             data: {
-              sessionSheetId: sessionSheet.id,
-              name: colName.toString(),
+              sessionSheetId: newSheet.id,
+              name: colName,
               dataType: SessionColumnDataType.TEXT,
-              position: i
-            }
+              position: i,
+            },
           });
+          columnIds.push(column.id);
+        } catch (err) {
+          // If a unique constraint fails (shouldn't happen in a new sheet), append a suffix
+          const fallbackName = `${colName}_${Date.now()}`;
+          const column = await this.prisma.sessionColumn.create({
+            data: {
+              sessionSheetId: newSheet.id,
+              name: fallbackName,
+              dataType: SessionColumnDataType.TEXT,
+              position: i,
+            },
+          });
+          columnIds.push(column.id);
         }
-        columnIds.push(column.id);
       }
 
-      // Try to map learners by Name (Assuming the 2nd column is 'Académicien' based on the sample)
+      if (columnIds.length === 0) {
+        // No valid columns found, skip this sheet
+        await this.prisma.sessionSheet.delete({ where: { id: newSheet.id } });
+        continue;
+      }
+
+      // ── 6. Import data rows (always INSERT, never upsert) ──────────
+      const valuesToCreate: { sessionSheetId: string; sessionColumnId: string; learnerId: string; value: string }[] = [];
+      let importRowCount = 0;
+
       for (let rowIndex = 1; rowIndex < jsonData.length; rowIndex++) {
         const row = jsonData[rowIndex];
         if (!row || row.length === 0) continue;
 
-        // Simple fuzzy match for learner name (concatenating first and last name)
-        // In a production app, we'd want a more robust matching strategy, but this is the best effort for an import.
-        let matchedLearner = null;
+        // Try to match a learner by name (using fuzzy matching on the entire row)
+        let matchedLearner: (typeof learners)[0] | null | undefined = null;
+
         for (const cell of row) {
-          if (typeof cell === 'string') {
-             matchedLearner = learners.find(l => 
-               cell.toLowerCase().includes(l.lastName.toLowerCase()) || 
-               cell.toLowerCase().includes(l.firstName.toLowerCase())
-             );
-             if (matchedLearner) break;
+          if (cell !== undefined && cell !== null && typeof cell === 'string') {
+            const cellStr = cell.toLowerCase().trim();
+            matchedLearner = learners.find(l =>
+              cellStr.includes(l.lastName.toLowerCase()) ||
+              cellStr.includes(l.firstName.toLowerCase())
+            ) ?? null;
+            if (matchedLearner) break;
           }
         }
 
-        if (matchedLearner) {
-           for (let i = 0; i < row.length; i++) {
-              const cellValue = row[i];
-              const colId = columnIds[i];
-              if (!colId || cellValue === undefined || cellValue === null) continue;
+        if (!matchedLearner) continue;
 
-              await this.prisma.sessionValue.upsert({
-                where: {
-                  sessionSheetId_sessionColumnId_learnerId: {
-                    sessionSheetId: sessionSheet.id,
-                    sessionColumnId: colId,
-                    learnerId: matchedLearner.id
-                  }
-                },
-                create: {
-                  sessionSheetId: sessionSheet.id,
-                  sessionColumnId: colId,
-                  learnerId: matchedLearner.id,
-                  value: cellValue.toString()
-                },
-                update: {
-                  value: cellValue.toString()
-                }
-              });
-           }
+        importRowCount++;
+
+        for (let i = 0; i < row.length; i++) {
+          const colId = columnIds[i];
+          if (!colId) continue;
+
+          const cellValue = row[i];
+          if (cellValue === undefined || cellValue === null) continue;
+
+          valuesToCreate.push({
+            sessionSheetId: newSheet.id,
+            sessionColumnId: colId,
+            learnerId: matchedLearner.id,
+            value: String(cellValue),
+          });
         }
       }
+
+      // Batch insert all values for this sheet
+      if (valuesToCreate.length > 0) {
+        // Use createMany for efficiency (no Prisma createMany does NOT support SQLite but PostgreSQL is fine)
+        // However, we must ensure we don't violate unique constraints.
+        // Since this is a brand new sheet with brand new columns, there is no risk of
+        // unique constraint violation on (sessionSheetId, sessionColumnId, learnerId).
+        await this.prisma.sessionValue.createMany({
+          data: valuesToCreate,
+          skipDuplicates: true, // safety net
+        });
+      }
+
+      importedSheets.push(uniqueSheetName);
     }
+
+    // ── 7. Validate that at least one sheet was imported ────────────────
+    if (importedSheets.length === 0) {
+      throw new BadRequestException(
+        'Aucune donnée valide n\'a pu être importée depuis ce fichier. ' +
+        'Vérifiez que le fichier contient au moins une feuille avec un en-tête et des données.'
+      );
+    }
+
+    return { importedSheets };
+  }
+
+  /**
+   * Generate a unique sheet name by appending a counter if the name already exists.
+   */
+  private generateUniqueName(baseName: string, existingNames: Set<string>): string {
+    // Validate and normalize name
+    let name = String(baseName).trim();
+    if (!name) name = 'Feuille';
+
+    if (!existingNames.has(name)) {
+      return name;
+    }
+
+    // Name exists, append a counter
+    let counter = 1;
+    let uniqueName = `${name}_${counter}`;
+    while (existingNames.has(uniqueName)) {
+      counter++;
+      uniqueName = `${name}_${counter}`;
+    }
+    return uniqueName;
   }
 
   private async ensureSessionExists(sessionId: string): Promise<void> {
@@ -244,7 +346,7 @@ export class SessionsService {
       where: { id: sessionId },
       select: { id: true },
     });
-    if (!session) throw new NotFoundException(`Session with id "${sessionId}" not found`);
+    if (!session) throw new NotFoundException(`Session avec l'id "${sessionId}" introuvable`);
   }
 
   private async ensureSheetExists(sheetId: string): Promise<void> {
@@ -252,7 +354,7 @@ export class SessionsService {
       where: { id: sheetId },
       select: { id: true },
     });
-    if (!sheet) throw new NotFoundException(`Sheet with id "${sheetId}" not found`);
+    if (!sheet) throw new NotFoundException(`Feuille avec l'id "${sheetId}" introuvable`);
   }
 
   private async ensureColumnExistsInSheet(sheetId: string, sessionColumnId: string): Promise<void> {
@@ -260,7 +362,7 @@ export class SessionsService {
       where: { id: sessionColumnId, sessionSheetId: sheetId },
       select: { id: true },
     });
-    if (!column) throw new NotFoundException(`Column with id "${sessionColumnId}" not found in sheet "${sheetId}"`);
+    if (!column) throw new NotFoundException(`Colonne avec l'id "${sessionColumnId}" introuvable dans la feuille "${sheetId}"`);
   }
 
   private async ensureLearnerExists(learnerId: string): Promise<void> {
@@ -268,7 +370,7 @@ export class SessionsService {
       where: { id: learnerId },
       select: { id: true },
     });
-    if (!learner) throw new NotFoundException(`Learner with id "${learnerId}" not found`);
+    if (!learner) throw new NotFoundException(`Académicien avec l'id "${learnerId}" introuvable`);
   }
   async getLearnerStats(learnerId: string) {
     const values = await this.prisma.sessionValue.findMany({

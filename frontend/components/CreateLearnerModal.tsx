@@ -49,7 +49,7 @@ export default function CreateLearnerModal({ isOpen, onClose, onSuccess }: Creat
             <div className="w-8 h-8 bg-blue-100 text-blue-600 rounded-lg flex items-center justify-center flex-shrink-0">
               <UserPlus size={18} />
             </div>
-            <h2 className="text-lg md:text-xl font-bold text-slate-900">Ajouter un Apprenant</h2>
+            <h2 className="text-lg md:text-xl font-bold text-slate-900">Ajouter un Académicien</h2>
           </div>
           <button onClick={onClose} className="text-slate-400 hover:text-slate-600 transition-colors flex-shrink-0 p-2 hover:bg-slate-100 rounded-lg min-h-touch min-w-touch">
             <X size={20} />
@@ -107,7 +107,7 @@ export default function CreateLearnerModal({ isOpen, onClose, onSuccess }: Creat
           </div>
 
           <div className="space-y-1">
-            <label className="text-xs font-bold text-slate-500 uppercase tracking-wider">Identifiant Apprenant</label>
+            <label className="text-xs font-bold text-slate-500 uppercase tracking-wider">Identifiant Académicien</label>
             <div className="relative">
               <Key className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={16} />
               <input
@@ -147,7 +147,7 @@ export default function CreateLearnerModal({ isOpen, onClose, onSuccess }: Creat
               disabled={loading}
               className="flex-1 px-4 py-2 bg-blue-600 text-white font-bold rounded-lg hover:bg-blue-700 transition-colors shadow-lg shadow-blue-200 flex items-center justify-center gap-2 disabled:opacity-50"
             >
-              {loading ? <Loader2 className="animate-spin" size={18} /> : 'Créer l\'Apprenant'}
+              {loading ? <Loader2 className="animate-spin" size={18} /> : 'Créer l\'Académicien'}
             </button>
           </div>
         </form>

@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useCallback } from 'react';
 import { getLearners, deleteLearner } from '@/services/api';
-import { UserPlus, Search, MoreHorizontal, Trash2, Loader2 } from 'lucide-react';
+import { UserPlus, Search, Trash2, Loader2, Edit } from 'lucide-react';
 import CreateLearnerModal from '@/components/CreateLearnerModal';
 import EditableCell from '@/components/EditableCell';
 import { useAuth } from '@/hooks/useAuth';
@@ -16,26 +16,44 @@ export default function LearnersPage() {
   const [deleting, setDeleting] = useState<string | null>(null);
 
   const fetchLearners = useCallback(async () => {
-    let isMounted = true; // eslint-disable-line prefer-const
     try {
       setLoading(true);
       const { data } = await getLearners();
-      if (!isMounted) return;
       setLearners(data);
     } catch (error) {
       console.error('Failed to fetch learners', error);
     } finally {
-      if (isMounted) setLoading(false);
+      setLoading(false);
     }
   }, []);
 
   useEffect(() => {
-    let cancelled = false;
     if (user && user.role === 'ADMIN') {
-      fetchLearners().then(() => { cancelled = true; });
+      fetchLearners();
     }
-    return () => { cancelled = true; };
   }, [fetchLearners, user]);
+
+  const handleDelete = async (id: string, name: string) => {
+    const confirmed = window.confirm(`Voulez-vous vraiment supprimer "${name}" ? Cette action est irréversible.`);
+    if (!confirmed) return;
+    
+    setDeleting(id);
+    try {
+      await deleteLearner(id);
+      setLearners(prev => prev.filter(l => l.id !== id));
+    } catch (error) {
+      console.error('Failed to delete learner:', error);
+      alert('Erreur lors de la suppression');
+    } finally {
+      setDeleting(null);
+    }
+  };
+
+  const handleFieldUpdate = (learnerId: string, field: string, newValue: string) => {
+    setLearners(prev => prev.map(l => 
+      l.id === learnerId ? { ...l, [field]: newValue } : l
+    ));
+  };
 
   if (authLoading) {
     return (
@@ -54,27 +72,11 @@ export default function LearnersPage() {
     (learner.identifiant && learner.identifiant.toLowerCase().includes(searchTerm.toLowerCase()))
   );
 
-  const handleDelete = async (id: string, name: string) => {
-    const confirmed = window.confirm(`Voulez-vous vraiment supprimer "${name}" ? Cette action est irréversible.`);
-    if (!confirmed) return;
-    
-    setDeleting(id);
-    try {
-      await deleteLearner(id);
-      setLearners(prev => prev.filter(l => l.id !== id));
-    } catch (error) {
-      console.error('Failed to delete learner:', error);
-      alert('Erreur lors de la suppression');
-    } finally {
-      setDeleting(null);
-    }
-  };
-
   return (
     <div className="space-y-6">
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
         <div>
-          <h1 className="text-3xl font-extrabold text-slate-900 tracking-tight">Apprenants</h1>
+          <h1 className="text-3xl font-extrabold text-slate-900 tracking-tight">Académiciens</h1>
           <p className="text-slate-500 mt-1">Gérez et suivez votre base d&apos;étudiants</p>
         </div>
         <button 
@@ -82,7 +84,7 @@ export default function LearnersPage() {
           className="flex items-center justify-center space-x-2 bg-blue-600 hover:bg-blue-700 text-white px-6 py-3 rounded-xl transition-all shadow-lg shadow-blue-200 hover:-translate-y-0.5 active:scale-95"
         >
           <UserPlus size={20} />
-          <span className="font-bold">Ajouter un Apprenant</span>
+          <span className="font-bold">Ajouter un Académicien</span>
         </button>
       </div>
 
@@ -111,7 +113,7 @@ export default function LearnersPage() {
           <table className="w-full text-left border-collapse">
             <thead className="bg-slate-50/50 text-slate-500 text-xs uppercase tracking-widest font-bold">
               <tr>
-                <th className="px-8 py-5 border-b border-slate-100">Apprenant</th>
+                <th className="px-8 py-5 border-b border-slate-100">Academicien</th>
                 <th className="px-8 py-5 border-b border-slate-100">Identifiant</th>
                 <th className="px-8 py-5 border-b border-slate-100">Email</th>
                 <th className="px-8 py-5 border-b border-slate-100">Statut</th>
@@ -134,7 +136,7 @@ export default function LearnersPage() {
                     <div className="flex flex-col items-center opacity-40">
                       <Search size={48} className="mb-4" />
                       <p className="text-lg">
-                        {searchTerm ? 'Aucun résultat trouvé.' : 'Aucun apprenant enregistré.'}
+                        {searchTerm ? 'Aucun résultat trouvé.' : 'Aucun académicien enregistré.'}
                       </p>
                     </div>
                   </td>
@@ -142,50 +144,74 @@ export default function LearnersPage() {
               ) : (
                 filteredLearners.map((learner) => (
                   <tr key={learner.id} className="group hover:bg-blue-50/30 transition-colors">
+                    {/* Nom et Prénom */}
                     <td className="px-8 py-5">
                       <div className="flex items-center gap-3">
                         <div className="w-10 h-10 rounded-full bg-blue-50 text-blue-600 flex items-center justify-center font-bold text-sm border border-blue-100 uppercase">
-                          {learner.firstName[0]}{learner.lastName[0]}
+                          {learner.firstName?.[0]}{learner.lastName?.[0]}
                         </div>
-                        <div>
-                          <div className="text-sm font-bold text-slate-900">{learner.firstName} {learner.lastName}</div>
-                          <div className="text-xs text-slate-500">{learner.email}</div>
+                        <div className="space-y-1">
+                          <EditableCell
+                            learnerId={learner.id}
+                            field="firstName"
+                            value={learner.firstName}
+                            onUpdate={(field, val) => handleFieldUpdate(learner.id, field, val)}
+                          />
+                          <EditableCell
+                            learnerId={learner.id}
+                            field="lastName"
+                            value={learner.lastName}
+                            onUpdate={(field, val) => handleFieldUpdate(learner.id, field, val)}
+                          />
                         </div>
                       </div>
                     </td>
-                    <td className="px-8 py-5 text-sm font-medium text-slate-600">
-                      {learner.identifiant || '---'}
-                    </td>
-                    <td className="px-8 py-5 text-sm text-slate-500">
-                      {learner.email}
-                    </td>
+                    
+                    {/* Identifiant */}
                     <td className="px-8 py-5">
-                      <span className={`px-3 py-1 rounded-full text-[10px] font-black uppercase tracking-wider ${
-                        learner.status === 'ADMITTED' ? 'bg-green-50 text-green-600 border border-green-100' :
-                        learner.status === 'PENDING' ? 'bg-yellow-50 text-yellow-600 border border-yellow-100' :
-                        'bg-red-50 text-red-600 border border-red-100'
-                      }`}>
-                        {learner.status}
-                      </span>
+                      <EditableCell
+                        learnerId={learner.id}
+                        field="identifiant"
+                        value={learner.identifiant || ''}
+                        onUpdate={(field, val) => handleFieldUpdate(learner.id, field, val)}
+                      />
                     </td>
+                    
+                    {/* Email */}
+                    <td className="px-8 py-5">
+                      <EditableCell
+                        learnerId={learner.id}
+                        field="email"
+                        value={learner.email}
+                        onUpdate={(field, val) => handleFieldUpdate(learner.id, field, val)}
+                      />
+                    </td>
+                    
+                    {/* Statut */}
+                    <td className="px-8 py-5">
+                      <EditableCell
+                        learnerId={learner.id}
+                        field="status"
+                        value={learner.status}
+                        type="select"
+                        onUpdate={(field, val) => handleFieldUpdate(learner.id, field, val)}
+                      />
+                    </td>
+                    
+                    {/* Actions */}
                     <td className="px-8 py-5 text-right">
-                      <div className="flex items-center justify-end space-x-2">
-                        <button 
-                          onClick={() => handleDelete(learner.id, `${learner.firstName} ${learner.lastName}`)}
-                          disabled={deleting === learner.id}
-                          className="p-2.5 text-red-400 hover:bg-red-50 hover:text-red-600 rounded-xl transition-all disabled:opacity-50 min-h-touch min-w-touch"
-                          title="Supprimer l'apprenant"
-                        >
-                          {deleting === learner.id ? (
-                            <Loader2 size={20} className="animate-spin" />
-                          ) : (
-                            <Trash2 size={20} />
-                          )}
-                        </button>
-                        <button className="p-2.5 text-slate-400 hover:bg-slate-100 rounded-xl transition-all min-h-touch min-w-touch">
-                          <MoreHorizontal size={20} />
-                        </button>
-                      </div>
+                      <button 
+                        onClick={() => handleDelete(learner.id, `${learner.firstName} ${learner.lastName}`)}
+                        disabled={deleting === learner.id}
+                        className="p-2.5 text-red-400 hover:bg-red-50 hover:text-red-600 rounded-xl transition-all disabled:opacity-50 min-h-touch min-w-touch"
+                        title="Supprimer l'académicien"
+                      >
+                        {deleting === learner.id ? (
+                          <Loader2 size={20} className="animate-spin" />
+                        ) : (
+                          <Trash2 size={20} />
+                        )}
+                      </button>
                     </td>
                   </tr>
                 ))
@@ -205,7 +231,7 @@ export default function LearnersPage() {
             <div className="flex flex-col items-center py-12 opacity-40">
               <Search size={48} className="mb-4 text-slate-300" />
               <p className="text-slate-500 font-medium">
-                {searchTerm ? 'Aucun résultat trouvé.' : 'Aucun apprenant enregistré.'}
+                {searchTerm ? 'Aucun résultat trouvé.' : 'Aucun académicien enregistré.'}
               </p>
             </div>
           ) : (
@@ -213,43 +239,65 @@ export default function LearnersPage() {
               {filteredLearners.map((learner) => (
                 <div key={learner.id} className="bg-white border border-slate-200 rounded-2xl p-4 shadow-sm hover:shadow-md transition-all">
                   <div className="flex flex-col gap-4">
-                    {/* Name Section */}
+                    {/* Nom Complet */}
                     <div className="pb-4 border-b border-slate-100">
                       <p className="text-xs text-slate-500 uppercase tracking-widest font-bold mb-1">Nom Complet</p>
-                      <div className="text-sm font-bold text-slate-900">{learner.firstName} {learner.lastName}</div>
+                      <div className="flex flex-col gap-2">
+                        <EditableCell
+                          learnerId={learner.id}
+                          field="firstName"
+                          value={learner.firstName}
+                          onUpdate={(field, val) => handleFieldUpdate(learner.id, field, val)}
+                        />
+                        <EditableCell
+                          learnerId={learner.id}
+                          field="lastName"
+                          value={learner.lastName}
+                          onUpdate={(field, val) => handleFieldUpdate(learner.id, field, val)}
+                        />
+                      </div>
                     </div>
 
                     {/* Identifiant */}
                     <div>
                       <p className="text-xs text-slate-500 uppercase tracking-widest font-bold mb-2">Identifiant</p>
-                      <div className="text-sm font-medium text-slate-600">{learner.identifiant || '---'}</div>
+                      <EditableCell
+                        learnerId={learner.id}
+                        field="identifiant"
+                        value={learner.identifiant || ''}
+                        onUpdate={(field, val) => handleFieldUpdate(learner.id, field, val)}
+                      />
                     </div>
 
                     {/* Email */}
                     <div>
                       <p className="text-xs text-slate-500 uppercase tracking-widest font-bold mb-2">Email</p>
-                      <div className="text-sm text-slate-500">{learner.email}</div>
+                      <EditableCell
+                        learnerId={learner.id}
+                        field="email"
+                        value={learner.email}
+                        onUpdate={(field, val) => handleFieldUpdate(learner.id, field, val)}
+                      />
                     </div>
 
-                    {/* Status */}
+                    {/* Statut */}
                     <div>
                       <p className="text-xs text-slate-500 uppercase tracking-widest font-bold mb-2">Statut</p>
-                      <span className={`px-3 py-1 rounded-full text-[10px] font-black uppercase tracking-wider ${
-                        learner.status === 'ADMITTED' ? 'bg-green-50 text-green-600 border border-green-100' :
-                        learner.status === 'PENDING' ? 'bg-yellow-50 text-yellow-600 border border-yellow-100' :
-                        'bg-red-50 text-red-600 border border-red-100'
-                      }`}>
-                        {learner.status}
-                      </span>
+                      <EditableCell
+                        learnerId={learner.id}
+                        field="status"
+                        value={learner.status}
+                        type="select"
+                        onUpdate={(field, val) => handleFieldUpdate(learner.id, field, val)}
+                      />
                     </div>
 
-                    {/* Actions */}
-                    <div className="flex gap-2 pt-4 border-t border-slate-100">
+                    {/* Supprimer */}
+                    <div className="pt-4 border-t border-slate-100">
                       <button 
                         onClick={() => handleDelete(learner.id, `${learner.firstName} ${learner.lastName}`)}
                         disabled={deleting === learner.id}
-                        className="flex-1 flex items-center justify-center gap-2 p-3 bg-red-50 text-red-600 hover:bg-red-100 rounded-xl transition-all disabled:opacity-50 min-h-touch font-medium text-sm"
-                        title="Supprimer l'apprenant"
+                        className="w-full flex items-center justify-center gap-2 p-3 bg-red-50 text-red-600 hover:bg-red-100 rounded-xl transition-all disabled:opacity-50 min-h-touch font-medium text-sm"
                       >
                         {deleting === learner.id ? (
                           <Loader2 size={18} className="animate-spin" />
@@ -259,10 +307,6 @@ export default function LearnersPage() {
                             <span>Supprimer</span>
                           </>
                         )}
-                      </button>
-                      <button className="flex-1 flex items-center justify-center gap-2 p-3 bg-slate-100 text-slate-600 hover:bg-slate-200 rounded-xl transition-all min-h-touch font-medium text-sm">
-                        <MoreHorizontal size={18} />
-                        <span>Voir plus</span>
                       </button>
                     </div>
                   </div>

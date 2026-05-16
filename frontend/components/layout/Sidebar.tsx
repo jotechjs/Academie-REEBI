@@ -10,7 +10,7 @@ const Sidebar = () => {
 
   const navItems = [
     { name: 'Tableau de bord', href: '/admin/dashboard', icon: LayoutDashboard },
-    { name: 'Apprenants', href: '/admin/learners', icon: Users },
+    { name: 'Académiciens', href: '/admin/learners', icon: Users },
     { name: 'Sessions', href: '/admin/sessions', icon: BookOpen },
     { name: 'Expériences', href: '/admin/experiences', icon: MessageSquare },
   ];

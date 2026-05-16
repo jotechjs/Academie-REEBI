@@ -130,7 +130,7 @@ export default function ExperiencesPage() {
         <div>
           <div className="inline-flex items-center gap-2 px-3 py-1 bg-blue-50 text-blue-600 rounded-full text-[10px] font-bold uppercase tracking-wider mb-4 border border-blue-100">
             <MessageSquare size={12} />
-            Feedback Apprenants
+            Feedback Académiciens
           </div>
           <h1 className="text-3xl md:text-4xl font-black text-slate-900 tracking-tight mb-2">Expériences & Témoignages</h1>
           <p className="text-slate-500 font-medium text-base md:text-lg">Consultez les retours des académiciens sur leur parcours.</p>
@@ -142,7 +142,7 @@ export default function ExperiencesPage() {
               <Search className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400 group-focus-within:text-blue-500 transition-colors" size={20} />
               <input
                 type="text"
-                placeholder="Rechercher un apprenant..."
+                placeholder="Rechercher un académicien..."
                 value={searchTerm}
                 onChange={(e) => setSearchTerm(e.target.value)}
                 className="w-full pl-12 pr-6 py-3 bg-white border border-slate-200 rounded-2xl focus:outline-none focus:ring-4 focus:ring-blue-500/10 focus:border-blue-500 transition-all shadow-sm font-medium text-sm"

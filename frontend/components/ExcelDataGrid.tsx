@@ -309,7 +309,7 @@ export default function ExcelDataGrid({ sheetId }: ExcelDataGridProps) {
                       onBlur={(e) => handleCellBlur(learner.id, nameColumnId, e.target.value)}
                       className="flex-1 px-2 py-1 outline-none focus:ring-2 focus:ring-inset focus:ring-blue-500 bg-transparent text-slate-700 font-medium transition-all min-h-touch"
                       placeholder="Nom"
-                      title="Vous pouvez personnaliser le nom affiché dans cette feuille. Le nom réel de l'apprenant resteinchangé dans le système."
+                      title="Vous pouvez personnaliser le nom affiché dans cette feuille. Le nom réel de l'académicien reste inchangé dans le système."
                     />
                   </div>
                 </td>
@@ -334,7 +334,7 @@ export default function ExcelDataGrid({ sheetId }: ExcelDataGridProps) {
             {learners.length === 0 && (
               <tr>
                 <td colSpan={data.columns.length + 1} className="px-4 py-8 text-center text-slate-500 italic">
-                  Aucun apprenant enregistré dans le système.
+                  Aucun académicien enregistré dans le système.
                 </td>
               </tr>
             )}
@@ -445,7 +445,7 @@ export default function ExcelDataGrid({ sheetId }: ExcelDataGridProps) {
 
         {learners.length === 0 && (
           <div className="p-8 text-center text-slate-500 italic bg-white rounded-lg border border-dashed border-slate-300">
-            Aucun apprenant enregistré dans le système.
+            Aucun académicien enregistré dans le système.
           </div>
         )}
       </div>

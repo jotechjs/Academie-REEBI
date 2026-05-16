@@ -8,8 +8,8 @@ export const metadata: Metadata = {
     default: "REEBI - Plateforme Académique",
     template: "%s | REEBI",
   },
-  description: "Plateforme académique REEBI - Gestion des apprenants, sessions, présences et attestations de l'Académie REEBI.",
-  keywords: ["REEBI", "Académie", "Formation", "Gestion apprenants", "Attestation", "Présence"],
+  description: "Plateforme académique REEBI - Gestion des académiciens, sessions, présences et attestations de l'Académie REEBI.",
+  keywords: ["REEBI", "Académie", "Formation", "Gestion académiciens", "Attestation", "Présence"],
   authors: [{ name: "REEBI Academy" }],
   creator: "REEBI",
   publisher: "REEBI",
@@ -30,7 +30,7 @@ export const metadata: Metadata = {
     url: "https://reebi-academie.com",
     siteName: "REEBI - Plateforme Académique",
     title: "REEBI - Plateforme Académique",
-    description: "Plateforme académique REEBI - Gestion des apprenants, sessions, présences et attestations.",
+    description: "Plateforme académique REEBI - Gestion des académiciens, sessions, présences et attestations.",
     images: [
       {
         url: "/logo-REEBI.png",
@@ -43,7 +43,7 @@ export const metadata: Metadata = {
   twitter: {
     card: "summary_large_image",
     title: "REEBI - Plateforme Académique",
-    description: "Plateforme académique REEBI - Gestion des apprenants, sessions, présences et attestations.",
+    description: "Plateforme académique REEBI - Gestion des académiciens, sessions, présences et attestations.",
     images: ["/logo-REEBI.png"],
   },
   verification: {

@@ -64,9 +64,20 @@ export class SessionsController {
   async importExcel(
     @Param('sessionId', new ParseUUIDPipe({ version: '4' })) sessionId: string,
     @UploadedFile() file: any,
+  ): Promise<{ message: string; importedSheets: string[] }> {
+    const result = await this.sessionsService.importExcel(sessionId, file.buffer);
+    const sheetCount = result.importedSheets.length;
+    return {
+      message: `Import réussi : ${sheetCount} feuille${sheetCount > 1 ? 's' : ''} importée${sheetCount > 1 ? 's' : ''} (${result.importedSheets.join(', ')})`,
+      importedSheets: result.importedSheets,
+    };
+  }
+
+  @Delete('sheets/:sheetId')
+  deleteSheet(
+    @Param('sheetId', new ParseUUIDPipe({ version: '4' })) sheetId: string,
   ): Promise<{ message: string }> {
-    await this.sessionsService.importExcel(sessionId, file.buffer);
-    return { message: 'Import successful' };
+    return this.sessionsService.deleteSheet(sheetId);
   }
 
   @Get('sheets/:sheetId/data')

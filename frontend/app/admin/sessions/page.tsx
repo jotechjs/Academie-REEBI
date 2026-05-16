@@ -1,8 +1,8 @@
 'use client';
 
 import { useState, useEffect, useCallback } from 'react';
-import { getSessions } from '@/services/api';
-import { Plus, Download, FileSpreadsheet, ChevronDown, Loader2 } from 'lucide-react';
+import { getSessions, deleteSheet } from '@/services/api';
+import { Plus, Download, FileSpreadsheet, ChevronDown, Loader2, Trash2 } from 'lucide-react';
 import CreateSessionModal from '@/components/CreateSessionModal';
 import ImportExcelModal from '@/components/ImportExcelModal';
 import ExcelDataGrid from '@/components/ExcelDataGrid';
@@ -17,6 +17,7 @@ export default function SessionsPage() {
   
   const [activeSessionId, setActiveSessionId] = useState<string | null>(null);
   const [activeSheetId, setActiveSheetId] = useState<string | null>(null);
+  const [deletingSheetId, setDeletingSheetId] = useState<string | null>(null);
 
   const fetchSessions = useCallback(async () => {
     let isMounted = true;
@@ -77,6 +78,38 @@ export default function SessionsPage() {
       setActiveSheetId(session.sheets[0].id);
     } else {
       setActiveSheetId(null);
+    }
+  };
+
+  const handleDeleteSheet = async (sheetId: string, sheetName: string) => {
+    if (!window.confirm(`Voulez-vous vraiment supprimer la feuille "${sheetName}" ?\n\nToutes les colonnes et données associées seront supprimées. Cette action est irréversible.`)) {
+      return;
+    }
+
+    setDeletingSheetId(sheetId);
+    try {
+      await deleteSheet(sheetId);
+      // Update local state: remove the sheet from the active session
+      setSessions(prev => prev.map(session => {
+        if (session.id === activeSessionId) {
+          return {
+            ...session,
+            sheets: session.sheets.filter((s: any) => s.id !== sheetId)
+          };
+        }
+        return session;
+      }));
+      // If the deleted sheet was active, select the first remaining sheet
+      if (activeSheetId === sheetId) {
+        const activeSession = sessions.find(s => s.id === activeSessionId);
+        const remainingSheets = activeSession?.sheets?.filter((s: any) => s.id !== sheetId) || [];
+        setActiveSheetId(remainingSheets.length > 0 ? remainingSheets[0].id : null);
+      }
+    } catch (error) {
+      console.error('Failed to delete sheet:', error);
+      alert('Erreur lors de la suppression de la feuille.');
+    } finally {
+      setDeletingSheetId(null);
     }
   };
 
@@ -161,17 +194,36 @@ export default function SessionsPage() {
               <div className="flex border-b border-slate-200 overflow-x-auto hide-scrollbar bg-slate-50 px-2 pt-2 gap-1 md:gap-0">
                 {activeSession.sheets && activeSession.sheets.length > 0 ? (
                   activeSession.sheets.map((sheet: any) => (
-                    <button
+                    <div
                       key={sheet.id}
-                      onClick={() => setActiveSheetId(sheet.id)}
-                      className={`px-3 md:px-6 py-2 md:py-3 font-medium text-xs md:text-sm rounded-t-lg border-b-2 transition-all whitespace-nowrap ${
+                      className={`flex items-center gap-1 px-3 md:px-6 py-2 md:py-3 rounded-t-lg border-b-2 transition-all whitespace-nowrap ${
                         activeSheetId === sheet.id
                           ? 'border-purple-600 text-purple-700 bg-white shadow-[0_-2px_10px_rgba(0,0,0,0.02)]'
                           : 'border-transparent text-slate-500 hover:text-slate-700 hover:bg-slate-100'
                       }`}
                     >
-                      {sheet.name}
-                    </button>
+                      <button
+                        onClick={() => setActiveSheetId(sheet.id)}
+                        className="font-medium text-xs md:text-sm"
+                      >
+                        {sheet.name}
+                      </button>
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          handleDeleteSheet(sheet.id, sheet.name);
+                        }}
+                        disabled={deletingSheetId === sheet.id}
+                        className="p-1 rounded hover:bg-red-100 text-slate-400 hover:text-red-600 transition-all disabled:opacity-50 ml-1"
+                        title={`Supprimer la feuille "${sheet.name}"`}
+                      >
+                        {deletingSheetId === sheet.id ? (
+                          <Loader2 size={12} className="animate-spin" />
+                        ) : (
+                          <Trash2 size={12} />
+                        )}
+                      </button>
+                    </div>
                   ))
                 ) : (
                   <div className="px-3 md:px-6 py-2 md:py-3 text-xs md:text-sm text-slate-500 italic">

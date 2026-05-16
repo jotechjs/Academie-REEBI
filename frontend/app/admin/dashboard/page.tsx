@@ -13,6 +13,7 @@ interface Activity {
   createdAt: string;
 }
 
+
 interface StatsData {
   totalLearners: number;
   totalReceived: number;
@@ -76,7 +77,7 @@ export default function Dashboard() {
   if (!user || user.role !== 'ADMIN') return null;
 
   const statsData = [
-    { name: 'Total Apprenants', value: stats?.totalLearners || 24, icon: Users, color: 'bg-blue-500' },
+    { name: 'Total Académiciens', value: stats?.totalLearners || 24, icon: Users, color: 'bg-blue-500' },
     { name: 'Sessions Actives', value: 3, icon: BookOpen, color: 'bg-purple-500' },
     { name: 'Témoignages Reçus', value: stats?.totalReceived || 0, icon: MessageSquare, color: 'bg-green-500' },
     { name: 'En attente', value: stats?.pending || 0, icon: Clock, color: 'bg-orange-500' },

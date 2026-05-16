@@ -93,6 +93,11 @@ export class CertificateService {
              height: 794px;
              background-color: #ffffff !important;
           }
+          img {
+             display: block;
+             max-width: 100%;
+             height: auto;
+          }
         </style>
       `;
 
@@ -190,43 +195,70 @@ export class CertificateService {
       await page.setViewport({
         width: 1122,
         height: 794,
-        deviceScaleFactor: 1,
+        deviceScaleFactor: 2,
       });
 
       await page.setContent(html, {
-        waitUntil: ['load', 'networkidle0'],
+        waitUntil: ['networkidle2'],
         timeout: 30000,
       });
 
       console.log('[PDF] Contenu HTML injecté');
 
+      // Wait for all resources and render
+      await page.waitForSelector('.certificate', { timeout: 10000 }).catch(() => {
+        console.log('[PDF] Certificate selector not found, continuing...');
+      });
+
+      // Check if content exists
+      const pageContent = await page.content();
+      console.log('[PDF] Page content length:', pageContent.length);
+
       await page.evaluate(async () => {
+        // Wait for all images to load
         const images = Array.from(document.images);
-        await Promise.all(images.map(img => {
-          if (img.complete) return Promise.resolve();
-          return new Promise(res => {
-            img.onload = img.onerror = res;
-          });
-        }));
-        if (document.fonts && document.fonts.ready) await document.fonts.ready;
+        console.log('[PDF] Nombre d\'images dans le document:', images.length);
+        
+        for (const img of images) {
+          if (!img.complete) {
+            await new Promise((resolve) => {
+              img.onload = resolve;
+              img.onerror = resolve;
+              setTimeout(resolve, 5000);
+            });
+          }
+        }
+        
+        // Wait for fonts
+        if (document.fonts && document.fonts.ready) {
+          await document.fonts.ready.catch(() => {});
+        }
+        
+        // Force a repaint
+        document.body.offsetHeight;
       });
       
       console.log('[PDF] Images et fonts chargés');
 
-      await new Promise(resolve => setTimeout(resolve, 1000));
+      await new Promise(resolve => setTimeout(resolve, 2000));
 
       const pdfBufferRaw = await page.pdf({
         width: '1122px',
         height: '794px',
         margin: { top: 0, right: 0, bottom: 0, left: 0 },
         printBackground: true,
-        scale: 1,
+        scale: 1.5,
         displayHeaderFooter: false,
-        preferCSSPageSize: true
+        preferCSSPageSize: false
       });
 
       const pdfBuffer = Buffer.from(pdfBufferRaw);
       console.log('[PDF] PDF généré, taille buffer:', pdfBuffer.length, 'bytes');
+
+      if (pdfBuffer.length < 500) {
+        console.error('[PDF] ERREUR: PDF généré trop petit (< 500 bytes), possible problème de rendu');
+        throw new BadRequestException('PDF généré invalide: contenu trop petit');
+      }
 
       // Sauvegarder en cache uniquement si pas production et chemin valide
       if (useCache && cacheFilePath) {

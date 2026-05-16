@@ -1,4 +1,6 @@
-import { useEffect, useState, useRef } from 'react';
+'use client';
+
+import { useEffect, useState, useRef, useCallback } from 'react';
 import { useRouter, usePathname } from 'next/navigation';
 
 interface User {
@@ -9,61 +11,121 @@ interface User {
   role?: string;
 }
 
+const PUBLIC_PATHS = ['/login', '/admin/login', '/', '/admin'];
+
 export function useAuth() {
   const [user, setUser] = useState<User | null>(null);
   const [loading, setLoading] = useState(true);
   const router = useRouter();
   const pathname = usePathname();
-  const isAuthCheckedRef = useRef(false);
-  const lastPathRef = useRef(pathname);
+  const authChecked = useRef(false);
+  const isRedirecting = useRef(false);
 
-  useEffect(() => {
-    if (isAuthCheckedRef.current && lastPathRef.current === pathname) {
+  const checkAuth = useCallback(() => {
+    if (isRedirecting.current) {
       return;
     }
-    isAuthCheckedRef.current = true;
-    lastPathRef.current = pathname;
 
-    const checkAuth = () => {
+    const isAdminPath = pathname.startsWith('/admin');
+    const isPublicPath = PUBLIC_PATHS.includes(pathname);
+
+    if (isPublicPath) {
+      setLoading(false);
+      authChecked.current = true;
+      return;
+    }
+
+    if (typeof window === 'undefined') {
+      setLoading(false);
+      return;
+    }
+
+    const token = localStorage.getItem('reebi_token');
+    const storedUser = localStorage.getItem('reebi_user');
+
+    if (!token || !storedUser) {
+      isRedirecting.current = true;
+      const loginPath = isAdminPath ? '/admin/login' : '/login';
+      router.push(loginPath);
+      setLoading(false);
+      return;
+    }
+
+    try {
+      const userData = JSON.parse(storedUser);
+
+      if (isAdminPath && userData.role !== 'ADMIN') {
+        isRedirecting.current = true;
+        const loginPath = '/admin/login';
+        router.push(loginPath);
+        setLoading(false);
+        return;
+      }
+
+      setUser(userData);
+      authChecked.current = true;
+    } catch {
+      localStorage.removeItem('reebi_token');
+      localStorage.removeItem('reebi_user');
+      isRedirecting.current = true;
+      const loginPath = isAdminPath ? '/admin/login' : '/login';
+      router.push(loginPath);
+    }
+
+    setLoading(false);
+  }, [pathname, router]);
+
+  useEffect(() => {
+    isRedirecting.current = false;
+
+    if (authChecked.current) {
+      const currentPath = pathname;
+      const isCurrentAdminPath = currentPath.startsWith('/admin');
+      const isCurrentPublicPath = PUBLIC_PATHS.includes(currentPath);
+
+      if (!isCurrentAdminPath || isCurrentPublicPath) {
+        setLoading(false);
+        return;
+      }
+
+      const token = localStorage.getItem('reebi_token');
+      const storedUser = localStorage.getItem('reebi_user');
+
+      if (!token || !storedUser) {
+        isRedirecting.current = true;
+        router.push('/admin/login');
+        setLoading(false);
+        return;
+      }
+
       try {
-        const token = localStorage.getItem('reebi_token');
-        const storedUser = localStorage.getItem('reebi_user');
-        const loginPath = pathname.startsWith('/admin') ? '/admin/login' : '/login';
-
-        if (!token || !storedUser) {
-          if (pathname !== loginPath && pathname !== '/' && pathname !== '/admin') {
-            router.push(loginPath);
-          }
+        const userData = JSON.parse(storedUser);
+        if (userData.role !== 'ADMIN') {
+          isRedirecting.current = true;
+          router.push('/admin/login');
           setLoading(false);
           return;
         }
-
-        const userData = JSON.parse(storedUser);
         setUser(userData);
-
-        if (pathname.startsWith('/admin') && userData.role !== 'ADMIN' && pathname !== '/admin/login') {
-          router.push('/login');
-        }
-      } catch (e) {
-        localStorage.removeItem('reebi_token');
-        localStorage.removeItem('reebi_user');
-        const loginPath = pathname.startsWith('/admin') ? '/admin/login' : '/login';
-        router.push(loginPath);
-      } finally {
-        setLoading(false);
+      } catch {
+        isRedirecting.current = true;
+        router.push('/admin/login');
       }
-    };
+      setLoading(false);
+      return;
+    }
 
     checkAuth();
-  }, [pathname, router]);
+  }, [pathname, router, checkAuth]);
 
-  const logout = () => {
-    const loginPath = pathname.startsWith('/admin') ? '/admin/login' : '/login';
+  const logout = useCallback(() => {
     localStorage.removeItem('reebi_token');
     localStorage.removeItem('reebi_user');
-    isAuthCheckedRef.current = false;
+    authChecked.current = false;
+    isRedirecting.current = false;
+    const loginPath = pathname.startsWith('/admin') ? '/admin/login' : '/login';
     router.push(loginPath);
-  };
+  }, [pathname, router]);
 
   return { user, loading, logout };
 }

@@ -2,6 +2,7 @@
 
 import { useState, useRef, useEffect } from 'react';
 import { updateLearner } from '@/services/api';
+import { Loader2 } from 'lucide-react';
 
 interface EditableCellProps {
   learnerId: string;
@@ -15,85 +16,142 @@ export default function EditableCell({ learnerId, field, value, type = 'text', o
   const [isEditing, setIsEditing] = useState(false);
   const [editValue, setEditValue] = useState(value);
   const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
+  const selectRef = useRef<HTMLSelectElement>(null);
 
   useEffect(() => {
     setEditValue(value);
   }, [value]);
 
   useEffect(() => {
-    if (isEditing && inputRef.current) {
-      inputRef.current.focus();
-      inputRef.current.select();
+    if (isEditing) {
+      if (type === 'select' && selectRef.current) {
+        selectRef.current.focus();
+      } else if (inputRef.current) {
+        inputRef.current.focus();
+        inputRef.current.select();
+      }
     }
-  }, [isEditing]);
+  }, [isEditing, type]);
 
   const handleSave = async () => {
     if (editValue === value) {
       setIsEditing(false);
+      setError(null);
       return;
     }
 
     setSaving(true);
+    setError(null);
+
     try {
       await updateLearner(learnerId, { [field]: editValue });
+      
       if (onUpdate) {
         onUpdate(field, editValue);
       }
+      
       setIsEditing(false);
-    } catch (error) {
-      console.error('Failed to update:', error);
+    } catch (err: any) {
+      console.error(`Failed to update ${field}:`, err);
+      setError(err.response?.data?.message || 'Erreur lors de la sauvegarde');
       setEditValue(value);
     } finally {
       setSaving(false);
     }
   };
 
+  const handleCancel = () => {
+    setEditValue(value);
+    setIsEditing(false);
+    setError(null);
+  };
+
   const handleKeyDown = (e: React.KeyboardEvent) => {
     if (e.key === 'Enter') {
-      handleSave();
+      if (type === 'select') {
+        handleSave();
+      } else {
+        handleSave();
+      }
     } else if (e.key === 'Escape') {
-      setEditValue(value);
-      setIsEditing(false);
+      handleCancel();
     }
   };
 
-  if (isEditing) {
-    if (type === 'select') {
-      return (
+  if (saving) {
+    return (
+      <div className="flex items-center gap-2 px-2 py-1">
+        <Loader2 className="animate-spin" size={16} />
+        <span className="text-xs text-slate-500">Sauvegarde...</span>
+      </div>
+    );
+  }
+
+  if (error) {
+    return (
+      <div className="flex items-center gap-2 px-2 py-1 text-red-500 text-xs">
+        <span>{error}</span>
+        <button onClick={handleCancel} className="underline">Annuler</button>
+      </div>
+    );
+  }
+
+  if (isEditing && type === 'select') {
+    return (
+      <div className="flex items-center gap-2">
         <select
-          ref={inputRef as any}
+          ref={selectRef}
           value={editValue}
           onChange={(e) => setEditValue(e.target.value)}
           onBlur={handleSave}
           onKeyDown={handleKeyDown}
-          disabled={saving}
-          className="w-full px-2 py-1 text-sm border border-blue-500 rounded focus:outline-none focus:ring-2 focus:ring-blue-500"
+          className="px-2 py-1.5 text-xs font-bold border-2 border-blue-500 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white min-w-[100px]"
         >
           <option value="PENDING">En attente</option>
           <option value="ADMITTED">Admis</option>
           <option value="REJECTED">Refusé</option>
         </select>
-      );
-    }
+        <button 
+          onClick={handleCancel}
+          className="text-slate-400 hover:text-slate-600 p-1"
+          title="Annuler"
+        >
+          ✕
+        </button>
+      </div>
+    );
+  }
+
+  if (isEditing) {
     return (
-      <input
-        ref={inputRef}
-        type="text"
-        value={editValue}
-        onChange={(e) => setEditValue(e.target.value)}
-        onBlur={handleSave}
-        onKeyDown={handleKeyDown}
-        disabled={saving}
-        className="w-full px-2 py-1 text-sm border border-blue-500 rounded focus:outline-none focus:ring-2 focus:ring-blue-500"
-      />
+      <div className="flex items-center gap-2">
+        <input
+          ref={inputRef}
+          type={field === 'email' ? 'email' : 'text'}
+          value={editValue}
+          onChange={(e) => setEditValue(e.target.value)}
+          onBlur={handleSave}
+          onKeyDown={handleKeyDown}
+          className="w-full px-2 py-1 text-sm border-2 border-blue-500 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+          placeholder={field === 'identifiant' ? 'REEBI-2024-001' : undefined}
+        />
+        <button 
+          onClick={handleCancel}
+          className="text-slate-400 hover:text-slate-600 p-1"
+          title="Annuler"
+        >
+          ✕
+        </button>
+      </div>
     );
   }
 
   return (
     <div
-      onClick={() => !saving && setIsEditing(true)}
-      className="cursor-pointer hover:bg-blue-50 px-2 py-1 -mx-2 rounded transition-colors"
+      onClick={() => setIsEditing(true)}
+      className="cursor-pointer hover:bg-blue-50 px-2 py-1 -mx-2 rounded transition-colors inline-block"
       title="Cliquez pour modifier"
     >
       {field === 'identifiant' ? (
@@ -101,11 +159,10 @@ export default function EditableCell({ learnerId, field, value, type = 'text', o
           {value || 'NON DÉFINI'}
         </code>
       ) : field === 'status' ? (
-        <span className={`inline-flex items-center px-3 py-1 rounded-full text-[10px] font-bold uppercase tracking-widest ${
+        <span className={`inline-flex items-center px-3 py-1 rounded-full text-[10px] font-bold uppercase tracking-widest cursor-pointer ${
           value === 'ADMITTED' ? 'bg-green-100 text-green-700 border border-green-200' : 
-          value === 'PENDING' ? 'bg-orange-100 text-orange-700 border border-orange-200' : 'bg-slate-100 text-slate-700 border border-slate-200'
+          value === 'PENDING' ? 'bg-yellow-100 text-yellow-700 border border-yellow-200' : 'bg-red-100 text-red-700 border border-red-200'
         }`}>
-          <span className="w-1.5 h-1.5 rounded-full bg-current mr-2"></span>
           {value === 'ADMITTED' ? 'Admis' : value === 'PENDING' ? 'En attente' : 'Refusé'}
         </span>
       ) : (

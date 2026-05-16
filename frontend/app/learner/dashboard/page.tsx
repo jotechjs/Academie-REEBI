@@ -111,7 +111,7 @@ export default function LearnerDashboard() {
   }
 
   return (
-    <div className="min-h-screen bg-slate-50 pb-20 font-sans selection:bg-blue-100 selection:text-blue-900">
+    <div className="min-h-screen bg-slate-50 pb-20 font-sans selection:bg-blue-100 selection:text-blue-900 overflow-x-hidden">
       {/* Premium Header - Mobile Responsive */}
       <header className="bg-white/80 backdrop-blur-md border-b border-slate-200 sticky top-0 z-40">
         <div className="max-w-7xl mx-auto px-4 md:px-6 h-16 md:h-20 flex justify-between items-center gap-2">
@@ -321,29 +321,36 @@ function ResultSection({ global, learner }: ResultSectionProps) {
   const [iframeScale, setIframeScale] = useState(1);
 
   console.log('[DEBUG] global.observation:', global.observation, 'global.codeAttestation:', global.codeAttestation);
-  const normalizedObservation = (global.observation || '').trim().toLowerCase();
-  const isCertified = normalizedObservation === 'certifié';
-  const isNotCertified = normalizedObservation === 'non certifié';
+  const normalizedObservation = (global.observation || '')
+    .trim()
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '');
+  const isCertified = normalizedObservation === 'certifie';
+  const isNotCertified = normalizedObservation === 'non certifie';
 
   useEffect(() => {
     const updateScale = () => {
       if (containerRef.current) {
         const containerWidth = containerRef.current.offsetWidth;
         const certWidth = 1122;
-        const availableWidth = containerWidth - 60;
-        const newScale = availableWidth / certWidth;
-        setIframeScale(Math.min(newScale, 1));
+        const padding = 32; // Account for container padding
+        const availableWidth = containerWidth - padding;
+        const newScale = Math.min(availableWidth / certWidth, 1);
+        setIframeScale(newScale);
       }
     };
 
     if (isValidated) {
-      setTimeout(updateScale, 200);
+      // Run immediately and after a short delay for DOM settle
+      updateScale();
+      const timer = setTimeout(updateScale, 100);
       window.addEventListener('resize', updateScale);
+      return () => {
+        clearTimeout(timer);
+        window.removeEventListener('resize', updateScale);
+      };
     }
-
-    return () => {
-      window.removeEventListener('resize', updateScale);
-    };
   }, [isValidated]);
 
   const handleValidate = async () => {
@@ -439,17 +446,18 @@ function ResultSection({ global, learner }: ResultSectionProps) {
   };
 
   const handleDownloadPDF = async () => {
-    if (!renderedHtml || !certificateRef.current) return;
+    if (!renderedHtml) return;
 
     setIsExporting(true);
 
     try {
-      // Call the backend API to generate the PDF
+      const token = localStorage.getItem('reebi_token');
+      
       const response = await fetch('/api/learners/certificate/generate', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          'Authorization': `Bearer ${localStorage.getItem('reebi_token')}`,
+          ...(token && { 'Authorization': `Bearer ${token}` }),
         },
         body: JSON.stringify({
           moyenneCours: global.moyenneCours,
@@ -457,94 +465,124 @@ function ResultSection({ global, learner }: ResultSectionProps) {
         }),
       });
 
-      if (response.ok) {
-        // Get the PDF as a blob and download
+      const contentType = response.headers.get('content-type') || '';
+      
+      if (response.ok && contentType.includes('application/pdf')) {
         const pdfBlob = await response.blob();
-        console.log('[FRONTEND] PDF Blob size:', pdfBlob.size, 'bytes, type:', pdfBlob.type);
         
-        if (pdfBlob.size === 0) {
-          throw new Error('Le PDF généré est vide - vérifiez les logs serveur');
+        if (pdfBlob.size >= 5000) {
+          console.log('[PDF] Backend OK:', pdfBlob.size);
+          const url = window.URL.createObjectURL(pdfBlob);
+          const link = document.createElement('a');
+          link.href = url;
+          link.download = `Attestation_REEBI_${learner.firstName}_${learner.lastName}.pdf`;
+          document.body.appendChild(link);
+          link.click();
+          document.body.removeChild(link);
+          window.URL.revokeObjectURL(url);
+          setIsExporting(false);
+          return;
         }
-        const url = window.URL.createObjectURL(pdfBlob);
-        const link = document.createElement('a');
-        link.href = url;
-        link.download = `Attestation_REEBI_${learner.firstName}_${learner.lastName}.pdf`;
-        document.body.appendChild(link);
-        link.click();
-        document.body.removeChild(link);
-        window.URL.revokeObjectURL(url);
-        setIsExporting(false);
-        return;
       }
 
-      // When backend fails, try to read error details
-      let backendMessage = '';
-      try {
-        const errJson = await response.json();
-        backendMessage = errJson?.error || errJson?.message || JSON.stringify(errJson);
-      } catch (e) {
-        backendMessage = response.statusText || `Status ${response.status}`;
-      }
+      console.log('[PDF] Using html2canvas + jsPDF direct fallback');
+      
+      // Load libraries dynamically
+      await new Promise<void>((resolve, reject) => {
+        if (typeof window === 'undefined') return reject(new Error('No window'));
+        
+        // @ts-ignore
+        if (window.jspdf && window.html2canvas) {
+          resolve();
+          return;
+        }
+        
+        const jsPdfScript = document.createElement('script');
+        jsPdfScript.src = 'https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js';
+        jsPdfScript.async = true;
+        jsPdfScript.onload = () => {
+          const html2canvasScript = document.createElement('script');
+          html2canvasScript.src = 'https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js';
+          html2canvasScript.async = true;
+          html2canvasScript.onload = () => resolve();
+          html2canvasScript.onerror = () => reject(new Error('Failed to load html2canvas'));
+          document.body.appendChild(html2canvasScript);
+        };
+        jsPdfScript.onerror = () => reject(new Error('Failed to load jsPDF'));
+        document.body.appendChild(jsPdfScript);
+      });
 
-      console.error('Backend certificate error:', response.status, backendMessage);
-
-      // Fallback: generate client-side using html2pdf
-      try {
-        await loadHtml2Pdf();
-      } catch (e: any) {
-        throw new Error(`Backend error: ${backendMessage} — fallback failed to load html2pdf: ${e?.message || e}`);
-      }
-
-      // Use client-side html2pdf as fallback
-      const element = certificateRef.current;
+      // Create container with proper visibility
       const container = document.createElement('div');
-      container.style.position = 'absolute';
-      container.style.left = '-9999px';
-      container.style.top = '-9999px';
-      container.style.width = '1122px';
-      container.style.height = '794px';
-      container.style.backgroundColor = '#ffffff';
-
-      const clone = element.cloneNode(true) as HTMLElement;
-      clone.style.transform = 'none';
-      clone.style.margin = '0';
-      container.appendChild(clone);
+      container.style.cssText = `
+        position: absolute;
+        left: 0;
+        top: 0;
+        width: 1122px;
+        height: 794px;
+        background: white;
+        overflow: hidden;
+        z-index: 999999;
+      `;
+      container.innerHTML = renderedHtml;
       document.body.appendChild(container);
 
-      // Wait for images to load and DOM to settle
-      await new Promise((r) => setTimeout(r, 2000));
+      // Wait for render
+      await new Promise(r => setTimeout(r, 1000));
 
       // @ts-ignore
-      const html2pdf = (window as any).html2pdf;
-      if (!html2pdf) throw new Error('html2pdf is not available');
+      const html2canvas = window.html2canvas;
+      // @ts-ignore
+      const { jsPDF } = window.jspdf;
 
-      const opt = {
-        margin: 0,
-        filename: `Attestation_REEBI_${learner.firstName}_${learner.lastName}.pdf`,
-        image: { type: 'jpeg', quality: 0.98 },
-        html2canvas: {
-          scale: 2,
-          useCORS: true,
-          logging: false,
-          letterRendering: true,
-          allowTaint: false,
-          backgroundColor: '#ffffff',
-        },
-        jsPDF: {
-          unit: 'mm',
-          format: 'a4',
-          orientation: 'landscape',
-        },
-      };
-
-      try {
-        await html2pdf().set(opt).from(container).save();
-        if (document.body.contains(container)) document.body.removeChild(container);
-        setIsExporting(false);
-      } catch (err: any) {
-        if (document.body.contains(container)) document.body.removeChild(container);
-        throw err;
+      if (!html2canvas || !jsPDF) {
+        throw new Error('Libraries not loaded');
       }
+
+      console.log('[PDF] Capturing canvas...');
+      
+      const canvas = await html2canvas(container, {
+        width: 1122,
+        height: 794,
+        scale: 2,
+        useCORS: true,
+        logging: false,
+        backgroundColor: '#ffffff',
+        allowTaint: true,
+      });
+
+      console.log('[PDF] Canvas captured, size:', canvas.width, 'x', canvas.height);
+
+      const imgData = canvas.toDataURL('image/jpeg', 1.0);
+      
+      const pdf = new jsPDF({
+        orientation: 'landscape',
+        unit: 'px',
+        format: [1122, 794],
+      });
+
+      pdf.addImage(imgData, 'JPEG', 0, 0, 1122, 794);
+      
+      const pdfOutput = pdf.output('blob');
+      console.log('[PDF] Generated, size:', pdfOutput.size);
+
+      // Download
+      const url = window.URL.createObjectURL(pdfOutput);
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = `Attestation_REEBI_${learner.firstName}_${learner.lastName}.pdf`;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      window.URL.revokeObjectURL(url);
+
+      // Cleanup
+      if (document.body.contains(container)) {
+        document.body.removeChild(container);
+      }
+      
+      setIsExporting(false);
+      console.log('[PDF] Complete!');
     } catch (err: any) {
       console.error('PDF Export Error:', err);
       setIsExporting(false);
@@ -559,7 +597,7 @@ if (isNotCertified) {
         <h2 className="text-2xl font-black text-slate-900 tracking-tight mb-6">Résultat de l'académie</h2>
         <div className="bg-slate-50 rounded-3xl p-8 border border-slate-100 text-center">
           <p className="text-lg text-slate-600 font-medium">
-            Nous vous encourageons à poursuivre vos efforts et à rester constants.
+            Nous vous encourageons à poursuivre ce parcours de discipolat avec grande soif, discipline, et détermination.
           </p>
         </div>
       </section>
@@ -572,7 +610,7 @@ if (isNotCertified) {
         <h2 className="text-2xl font-black text-slate-900 tracking-tight mb-6">Résultat de l'académie</h2>
         <div className="bg-slate-50 rounded-3xl p-8 border border-slate-100 text-center">
           <p className="text-lg text-slate-600 font-medium">
-            Nous vous encourageons à poursuivre vos efforts et à rester constants.
+            Nous vous encourageons à poursuivre ce parcours de discipolat avec grande soif, discipline, et détermination.
           </p>
         </div>
       </section>
@@ -580,7 +618,7 @@ if (isNotCertified) {
   }
 
   return (
-    <section ref={containerRef} className="bg-white rounded-[2.5rem] p-10 shadow-xl shadow-slate-200/50 border border-slate-100 mb-10">
+    <section className="bg-white rounded-[2.5rem] p-10 shadow-xl shadow-slate-200/50 border border-slate-100 mb-10 overflow-hidden">
       <h2 className="text-2xl font-black text-slate-900 tracking-tight mb-6">Résultat de l’académie</h2>
       
       {!isValidated ? (
@@ -591,10 +629,10 @@ if (isNotCertified) {
             </div>
             <div>
               <p className="text-lg text-slate-800 font-bold leading-tight mb-1">
-                Félicitations pour avoir terminé brillamment votre parcours.
+                Félicitations pour avoir terminé brillamment votre parcours de discipolat.
               </p>
               <p className="text-blue-600 text-sm font-medium">
-                Utilisez ce code pour accéder à votre attestation: <span className="font-black underline">{global.codeAttestation}</span>
+                Entrer le code reçu après votre paiement pour accéder à votre attestation !
               </p>
             </div>
           </div>
@@ -624,8 +662,12 @@ if (isNotCertified) {
         </div>
       ) : (
 <div className="space-y-6 md:space-y-10 animate-in fade-in slide-in-from-bottom-4 duration-700">
-          {/* Certificate Container - Full display without cutting */}
-          <div className="w-full overflow-x-auto bg-slate-100 p-2 md:p-4 rounded-xl md:rounded-3xl min-h-[400px] md:min-h-[600px] flex justify-center">
+          {/* Certificate Container - Responsive scaling */}
+          <div
+            ref={containerRef}
+            className="w-full overflow-hidden bg-slate-100 p-2 md:p-4 rounded-xl md:rounded-3xl flex justify-center"
+            style={{ minHeight: `${Math.max(794 * iframeScale + 32, 300)}px` }}
+          >
              <div
                 ref={certificateRef}
                 className="shadow-2xl bg-white"
@@ -634,7 +676,6 @@ if (isNotCertified) {
                   height: '794px',
                   transform: `scale(${iframeScale})`,
                   transformOrigin: 'top center',
-                  flexShrink: 0
                 }}
                 dangerouslySetInnerHTML={{ __html: renderedHtml }}
               />
@@ -678,11 +719,6 @@ function ExperienceSection() {
       setIsSubmitting(true);
       await api.post('/experiences', form);
       setSubmitted(true);
-      // After a successful submission, force a reload of the admin experiences page so the new entry is visible.
-      if (typeof window !== 'undefined') {
-        // Navigate to the admin experiences page (or simply reload if already there).
-        window.location.href = '/experiences';
-      }
     } catch (error: any) {
       console.error('Failed to submit experience', error);
       alert('Une erreur est survenue lors de l\'envoi de votre témoignage.');
