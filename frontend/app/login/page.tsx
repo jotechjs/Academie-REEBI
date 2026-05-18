@@ -1,35 +1,71 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import Image from 'next/image';
 import { useRouter } from 'next/navigation';
-import { Mail, Key, Loader2 } from 'lucide-react';
-import api from '@/services/api';
+import { Mail, Key, Loader2, ServerIcon } from 'lucide-react';
+import api, { warmupBackend } from '@/services/api';
 
 export default function LoginPage() {
   const [email, setEmail] = useState('');
   const [identifiant, setIdentifiant] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
+  const [serverWarming, setServerWarming] = useState(false);
+  const [loadingMsg, setLoadingMsg] = useState('Connexion en cours...');
   const router = useRouter();
+  const msgTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // Warm up le backend dès l'affichage de la page (non bloquant)
+  useEffect(() => {
+    setServerWarming(true);
+    warmupBackend().finally(() => setServerWarming(false));
+    return () => {
+      if (msgTimerRef.current) clearTimeout(msgTimerRef.current);
+    };
+  }, []);
 
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
     setLoading(true);
     setError('');
+    setLoadingMsg('Connexion en cours...');
+
+    // Message adaptatif si ça prend du temps (cold start)
+    msgTimerRef.current = setTimeout(() => {
+      setLoadingMsg('Le serveur démarre, encore quelques secondes...');
+    }, 5000);
+
+    const attempt = async (): Promise<boolean> => {
+      try {
+        const response = await api.post('/auth/login', { email, identifiant });
+        const { access_token, user } = response.data;
+        localStorage.setItem('reebi_token', access_token);
+        localStorage.setItem('reebi_user', JSON.stringify(user));
+        router.push('/learner/dashboard');
+        return true;
+      } catch (err: any) {
+        // Si erreur réseau (cold start encore en cours), réessayer 1 fois
+        if (!err.response && err.code !== 'ERR_CANCELED') {
+          return false; // signale qu'on doit retry
+        }
+        throw err; // erreur métier → propager
+      }
+    };
 
     try {
-      const response = await api.post('/auth/login', { email, identifiant });
-      const { access_token, user } = response.data;
-      
-      localStorage.setItem('reebi_token', access_token);
-      localStorage.setItem('reebi_user', JSON.stringify(user));
-
-      router.push('/learner/dashboard');
+      const ok = await attempt();
+      if (!ok) {
+        // Retry unique après 3s (le serveur finit de démarrer)
+        setLoadingMsg('Reconnexion au serveur...');
+        await new Promise(r => setTimeout(r, 3000));
+        await attempt();
+      }
     } catch (err: any) {
-      setError(err.response?.data?.message || 'Identifiants invalides');
+      setError(err.response?.data?.message || 'Identifiants invalides ou serveur indisponible.');
     } finally {
       setLoading(false);
+      if (msgTimerRef.current) clearTimeout(msgTimerRef.current);
     }
   };
 
@@ -37,24 +73,24 @@ export default function LoginPage() {
     <div className="min-h-screen bg-slate-50 flex flex-col justify-center py-8 sm:py-12 px-4 sm:px-6 lg:px-8 relative overflow-hidden">
       {/* Large Background Logo */}
       <div className="absolute inset-0 flex items-center justify-center pointer-events-none opacity-[0.03]">
-        <Image 
-          src="/logo-REEBI.png" 
-          alt="" 
+        <Image
+          src="/logo-REEBI.png"
+          alt=""
           width={800}
           height={800}
-          className="w-full max-w-[800px] h-auto object-contain" 
+          className="w-full max-w-[800px] h-auto object-contain"
           priority
         />
       </div>
 
       <div className="sm:mx-auto sm:w-full sm:max-w-md relative z-10">
         <div className="flex justify-center mb-6 sm:mb-8">
-          <Image 
-            src="/logo-REEBI.png" 
-            alt="REEBI Logo" 
+          <Image
+            src="/logo-REEBI.png"
+            alt="REEBI Logo"
             width={96}
             height={96}
-            className="h-16 sm:h-24 w-auto object-contain" 
+            className="h-16 sm:h-24 w-auto object-contain"
             priority
           />
         </div>
@@ -64,6 +100,14 @@ export default function LoginPage() {
         <p className="mt-1 sm:mt-2 text-center text-xs sm:text-sm text-slate-500 font-medium px-2">
           Connectez-vous à votre espace personnel
         </p>
+
+        {/* Indicateur warm-up discret */}
+        {serverWarming && (
+          <div className="mt-3 flex items-center justify-center gap-2 text-xs text-slate-400">
+            <ServerIcon size={12} className="animate-pulse" />
+            <span>Connexion au serveur en cours...</span>
+          </div>
+        )}
       </div>
 
       <div className="mt-6 sm:mt-8 sm:mx-auto sm:w-full sm:max-w-md relative z-10 px-0 sm:px-0">
@@ -117,14 +161,21 @@ export default function LoginPage() {
                 />
               </div>
             </div>
-            
+
             <div className="pt-2 sm:pt-4">
               <button
                 type="submit"
                 disabled={loading}
-                className="w-full flex justify-center py-3 sm:py-4 px-4 border border-transparent rounded-2xl shadow-xl shadow-blue-500/20 text-xs sm:text-sm font-black text-white bg-blue-600 hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 transition-all active:scale-[0.98] disabled:opacity-50 min-h-touch"
+                className="w-full flex flex-col justify-center items-center py-3 sm:py-4 px-4 border border-transparent rounded-2xl shadow-xl shadow-blue-500/20 text-xs sm:text-sm font-black text-white bg-blue-600 hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 transition-all active:scale-[0.98] disabled:opacity-50 min-h-touch"
               >
-                {loading ? <Loader2 className="animate-spin" size={20} /> : 'SE CONNECTER AU DASHBOARD'}
+                {loading ? (
+                  <>
+                    <Loader2 className="animate-spin mb-1" size={20} />
+                    <span className="text-[10px] font-medium opacity-80">{loadingMsg}</span>
+                  </>
+                ) : (
+                  'SE CONNECTER AU DASHBOARD'
+                )}
               </button>
             </div>
           </form>

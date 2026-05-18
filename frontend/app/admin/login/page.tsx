@@ -1,35 +1,70 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import Image from 'next/image';
 import { useRouter } from 'next/navigation';
-import { Key, Loader2, ShieldAlert } from 'lucide-react';
-import api from '@/services/api';
+import { Key, Loader2, ServerIcon } from 'lucide-react';
+import api, { warmupBackend } from '@/services/api';
 
 export default function AdminLoginPage() {
   const [accessCode, setAccessCode] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
+  const [serverWarming, setServerWarming] = useState(false);
+  const [loadingMsg, setLoadingMsg] = useState('Authentification...');
   const router = useRouter();
+  const msgTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // Warm up le backend dès l'affichage de la page (non bloquant)
+  useEffect(() => {
+    setServerWarming(true);
+    warmupBackend().finally(() => setServerWarming(false));
+    return () => {
+      if (msgTimerRef.current) clearTimeout(msgTimerRef.current);
+    };
+  }, []);
 
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
     setLoading(true);
     setError('');
+    setLoadingMsg('Authentification...');
+
+    // Message adaptatif si ça prend du temps (cold start)
+    msgTimerRef.current = setTimeout(() => {
+      setLoadingMsg('Le serveur démarre, encore quelques secondes...');
+    }, 5000);
+
+    const attempt = async (): Promise<boolean> => {
+      try {
+        const response = await api.post('/auth/admin/login', { accessCode });
+        const { access_token, user } = response.data;
+        localStorage.setItem('reebi_token', access_token);
+        localStorage.setItem('reebi_user', JSON.stringify(user));
+        router.push('/admin/dashboard');
+        return true;
+      } catch (err: any) {
+        // Si erreur réseau (cold start encore en cours), réessayer 1 fois
+        if (!err.response && err.code !== 'ERR_CANCELED') {
+          return false; // signale qu'on doit retry
+        }
+        throw err; // erreur métier → propager
+      }
+    };
 
     try {
-      const response = await api.post('/auth/admin/login', { accessCode });
-      const { access_token, user } = response.data;
-      
-      localStorage.setItem('reebi_token', access_token);
-      localStorage.setItem('reebi_user', JSON.stringify(user));
-
-      // Redirige vers le dashboard admin
-      router.push('/admin/dashboard');
+      const ok = await attempt();
+      if (!ok) {
+        // Retry unique après 3s
+        setLoadingMsg('Reconnexion au serveur...');
+        await new Promise(r => setTimeout(r, 3000));
+        await attempt();
+      }
     } catch (err: any) {
-      setError(err.response?.data?.message || 'Code d\'accès invalide');
+      setError(err.response?.data?.message || 'Code d\'accès invalide ou serveur indisponible.');
     } finally {
       setLoading(false);
+      if (msgTimerRef.current) clearTimeout(msgTimerRef.current);
     }
   };
 
@@ -37,24 +72,24 @@ export default function AdminLoginPage() {
     <div className="min-h-screen bg-slate-900 flex flex-col justify-center py-12 sm:px-6 lg:px-8 relative overflow-hidden">
       {/* Large Background Logo */}
       <div className="absolute inset-0 flex items-center justify-center pointer-events-none opacity-[0.03]">
-        <Image 
-          src="/logo-REEBI.png" 
-          alt="" 
+        <Image
+          src="/logo-REEBI.png"
+          alt=""
           width={800}
           height={800}
-          className="w-full max-w-[800px] h-auto object-contain invert" 
+          className="w-full max-w-[800px] h-auto object-contain invert"
           priority
         />
       </div>
 
       <div className="sm:mx-auto sm:w-full sm:max-w-md relative z-10">
         <div className="flex justify-center mb-8">
-          <Image 
-            src="/logo-REEBI.png" 
-            alt="REEBI Logo" 
+          <Image
+            src="/logo-REEBI.png"
+            alt="REEBI Logo"
             width={120}
             height={120}
-            className="h-20 sm:h-28 w-auto object-contain" 
+            className="h-20 sm:h-28 w-auto object-contain"
             priority
           />
         </div>
@@ -64,6 +99,14 @@ export default function AdminLoginPage() {
         <p className="mt-2 text-center text-sm text-slate-400 font-medium">
           Veuillez saisir le code d'accès sécurisé
         </p>
+
+        {/* Indicateur warm-up discret */}
+        {serverWarming && (
+          <div className="mt-3 flex items-center justify-center gap-2 text-xs text-slate-500">
+            <ServerIcon size={12} className="animate-pulse" />
+            <span>Connexion au serveur en cours...</span>
+          </div>
+        )}
       </div>
 
       <div className="mt-8 sm:mx-auto sm:w-full sm:max-w-md relative z-10">
@@ -94,14 +137,21 @@ export default function AdminLoginPage() {
                 />
               </div>
             </div>
-            
+
             <div className="pt-4">
               <button
                 type="submit"
                 disabled={loading || !accessCode}
-                className="w-full flex justify-center py-4 px-4 border border-transparent rounded-2xl shadow-xl text-sm font-black text-white bg-blue-600 hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 focus:ring-offset-slate-900 transition-all active:scale-[0.98] disabled:opacity-50"
+                className="w-full flex flex-col justify-center items-center py-4 px-4 border border-transparent rounded-2xl shadow-xl text-sm font-black text-white bg-blue-600 hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 focus:ring-offset-slate-900 transition-all active:scale-[0.98] disabled:opacity-50"
               >
-                {loading ? <Loader2 className="animate-spin" size={20} /> : 'AUTORISER L\'ACCÈS'}
+                {loading ? (
+                  <>
+                    <Loader2 className="animate-spin mb-1" size={20} />
+                    <span className="text-[10px] font-medium opacity-80">{loadingMsg}</span>
+                  </>
+                ) : (
+                  'AUTORISER L\'ACCÈS'
+                )}
               </button>
             </div>
           </form>

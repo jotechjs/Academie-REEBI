@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { getSessions, deleteSheet } from '@/services/api';
 import { Plus, Download, FileSpreadsheet, ChevronDown, Loader2, Trash2 } from 'lucide-react';
 import CreateSessionModal from '@/components/CreateSessionModal';
@@ -11,32 +11,49 @@ import { useAuth } from '@/hooks/useAuth';
 export default function SessionsPage() {
   const { user, loading: authLoading } = useAuth();
   const [sessions, setSessions] = useState<any[]>([]);
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(false);
   const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
   const [isImportModalOpen, setIsImportModalOpen] = useState(false);
-  
+
   const [activeSessionId, setActiveSessionId] = useState<string | null>(null);
   const [activeSheetId, setActiveSheetId] = useState<string | null>(null);
   const [deletingSheetId, setDeletingSheetId] = useState<string | null>(null);
 
+  // Refs pour éviter la boucle infinie :
+  // useCallback ne doit PAS dépendre des states qu'il modifie lui-même.
+  // On passe les valeurs actuelles via refs pour les lire dans fetchSessions
+  // sans les mettre dans ses dépendances.
+  const activeSessionIdRef = useRef<string | null>(null);
+  const activeSheetIdRef = useRef<string | null>(null);
+
+  // Synchroniser les refs avec le state
+  useEffect(() => { activeSessionIdRef.current = activeSessionId; }, [activeSessionId]);
+  useEffect(() => { activeSheetIdRef.current = activeSheetId; }, [activeSheetId]);
+
+  // ─── fetchSessions ─────────────────────────────────────────────────────────
+  // CORRECTION BUG 3 : plus de dépendances sur activeSessionId/activeSheetId
+  // → pas de boucle infinie. On lit les valeurs via refs.
   const fetchSessions = useCallback(async () => {
-    let isMounted = true;
     try {
       setLoading(true);
       const { data } = await getSessions();
-      if (!isMounted) return;
       setSessions(data);
 
-      if (data.length > 0 && !activeSessionId) {
+      const currentSessionId = activeSessionIdRef.current;
+      const currentSheetId = activeSheetIdRef.current;
+
+      if (data.length > 0 && !currentSessionId) {
+        // Première fois : sélectionner la première session
         const firstSession = data[0];
         setActiveSessionId(firstSession.id);
-        if (firstSession.sheets && firstSession.sheets.length > 0) {
+        if (firstSession.sheets?.length > 0) {
           setActiveSheetId(firstSession.sheets[0].id);
         }
-      } else if (data.length > 0 && activeSessionId) {
-        const currentSession = data.find((s: any) => s.id === activeSessionId);
-        if (currentSession && currentSession.sheets && currentSession.sheets.length > 0) {
-          const sheetExists = currentSession.sheets.find((s: any) => s.id === activeSheetId);
+      } else if (data.length > 0 && currentSessionId) {
+        // Navigation retour : conserver la session/feuille active si elle existe encore
+        const currentSession = data.find((s: any) => s.id === currentSessionId);
+        if (currentSession?.sheets?.length > 0) {
+          const sheetExists = currentSession.sheets.find((s: any) => s.id === currentSheetId);
           if (!sheetExists) {
             setActiveSheetId(currentSession.sheets[0].id);
           }
@@ -47,18 +64,19 @@ export default function SessionsPage() {
     } catch (error) {
       console.error('Failed to fetch sessions', error);
     } finally {
-      if (isMounted) setLoading(false);
+      setLoading(false);
     }
-    return () => { isMounted = false; };
-  }, [activeSessionId, activeSheetId]);
+  }, []); // ← Dépendances vides : la fonction est stable, on lit les states via refs
+  // ─────────────────────────────────────────────────────────────────────────────
 
+  // Charger les sessions une seule fois au mount (quand l'utilisateur est prêt)
+  const fetchedRef = useRef(false);
   useEffect(() => {
-    let cancelled = false;
-    if (user && user.role === 'ADMIN') {
-      fetchSessions().then(() => { cancelled = true; });
+    if (user && user.role === 'ADMIN' && !fetchedRef.current) {
+      fetchedRef.current = true;
+      fetchSessions();
     }
-    return () => { cancelled = true; };
-  }, [fetchSessions, user]);
+  }, [user, fetchSessions]);
 
   if (authLoading) {
     return (
@@ -74,7 +92,7 @@ export default function SessionsPage() {
     const sessionId = e.target.value;
     setActiveSessionId(sessionId);
     const session = sessions.find(s => s.id === sessionId);
-    if (session && session.sheets && session.sheets.length > 0) {
+    if (session?.sheets?.length > 0) {
       setActiveSheetId(session.sheets[0].id);
     } else {
       setActiveSheetId(null);
@@ -89,7 +107,6 @@ export default function SessionsPage() {
     setDeletingSheetId(sheetId);
     try {
       await deleteSheet(sheetId);
-      // Update local state: remove the sheet from the active session
       setSessions(prev => prev.map(session => {
         if (session.id === activeSessionId) {
           return {
@@ -99,7 +116,6 @@ export default function SessionsPage() {
         }
         return session;
       }));
-      // If the deleted sheet was active, select the first remaining sheet
       if (activeSheetId === sheetId) {
         const activeSession = sessions.find(s => s.id === activeSessionId);
         const remainingSheets = activeSession?.sheets?.filter((s: any) => s.id !== sheetId) || [];
@@ -122,7 +138,7 @@ export default function SessionsPage() {
           <h1 className="text-2xl md:text-3xl font-bold text-slate-900">Sessions</h1>
           <p className="text-sm md:text-base text-slate-500 mt-1">Gérez les promotions et listes de présences (Type Excel)</p>
         </div>
-        <button 
+        <button
           onClick={() => setIsCreateModalOpen(true)}
           className="flex items-center space-x-2 bg-purple-600 hover:bg-purple-700 text-white px-3 md:px-4 py-2 rounded-lg transition-colors shadow-sm text-sm md:text-base min-h-touch min-w-touch"
         >
@@ -132,10 +148,10 @@ export default function SessionsPage() {
         </button>
       </div>
 
-      <CreateSessionModal 
-        isOpen={isCreateModalOpen} 
-        onClose={() => setIsCreateModalOpen(false)} 
-        onSuccess={fetchSessions} 
+      <CreateSessionModal
+        isOpen={isCreateModalOpen}
+        onClose={() => setIsCreateModalOpen(false)}
+        onSuccess={fetchSessions}
       />
 
       {activeSessionId && (
@@ -162,8 +178,8 @@ export default function SessionsPage() {
             <div className="flex flex-col sm:flex-row items-start sm:items-center gap-2 sm:gap-3 w-full lg:w-auto">
               <span className="text-sm text-slate-500 font-medium whitespace-nowrap">Sélectionner :</span>
               <div className="relative w-full sm:w-56 md:w-64">
-                <select 
-                  value={activeSessionId || ''} 
+                <select
+                  value={activeSessionId || ''}
                   onChange={handleSessionChange}
                   className="w-full appearance-none bg-slate-50 border border-slate-200 text-slate-900 font-semibold py-2 px-3 md:px-4 pr-8 md:pr-10 rounded-lg outline-none focus:ring-2 focus:ring-purple-500 transition-colors text-sm"
                 >
@@ -176,7 +192,7 @@ export default function SessionsPage() {
             </div>
 
             <div className="flex items-center gap-2 md:gap-3 w-full lg:w-auto">
-              <button 
+              <button
                 onClick={() => setIsImportModalOpen(true)}
                 className="flex items-center justify-center space-x-1.5 md:space-x-2 bg-green-50 hover:bg-green-100 text-green-700 border border-green-200 px-3 md:px-4 py-2 rounded-lg transition-colors font-medium text-xs md:text-sm flex-1 lg:flex-none min-h-touch min-w-touch"
               >
@@ -192,7 +208,7 @@ export default function SessionsPage() {
             <div className="bg-white rounded-2xl md:rounded-3xl shadow-sm border border-slate-100 overflow-hidden flex flex-col min-h-[400px] md:min-h-[500px] lg:h-[calc(100vh-250px)]">
               {/* Tab Navigation */}
               <div className="flex border-b border-slate-200 overflow-x-auto hide-scrollbar bg-slate-50 px-2 pt-2 gap-1 md:gap-0">
-                {activeSession.sheets && activeSession.sheets.length > 0 ? (
+                {activeSession.sheets?.length > 0 ? (
                   activeSession.sheets.map((sheet: any) => (
                     <div
                       key={sheet.id}

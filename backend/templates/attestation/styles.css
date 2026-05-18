@@ -2,7 +2,7 @@
    RESET & PAGE — A4 PAYSAGE STRICT
 ═══════════════════════════════════════════════ */
 @page {
-  size: A4 landscape;
+  size: 297mm 210mm;
   margin: 0;
 }
 
@@ -13,18 +13,18 @@
 }
 
 html, body {
-  width: 1122px;
-  height: 794px;
+  width: 297mm;
+  height: 210mm;
   background: #ffffff;
   overflow: visible;
   margin: 0;
   padding: 0;
+  -webkit-print-color-adjust: exact;
+  print-color-adjust: exact;
 }
 
 body {
   font-family: 'Arial', 'Helvetica', sans-serif;
-  -webkit-print-color-adjust: exact;
-  print-color-adjust: exact;
 }
 
 /* ═══════════════════════════════════════════════
@@ -33,10 +33,10 @@ body {
 ═══════════════════════════════════════════════ */
 .certificate {
   position: relative;
-  width: 1122px;
-  height: 794px;
-  min-width: 1122px;
-  min-height: 794px;
+  width: 100%;
+  height: 100%;
+  min-width: 100%;
+  min-height: 100%;
   display: flex;
   flex-direction: column;
   background: #ffffff;

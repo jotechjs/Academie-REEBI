@@ -1,9 +1,9 @@
 'use client';
 
-import { Users, MessageSquare, BookOpen, Clock, Loader2, RefreshCw } from 'lucide-react';
+import { Users, MessageSquare, BookOpen, Clock, Loader2, RefreshCw, AlertCircle } from 'lucide-react';
 import { useRouter } from 'next/navigation';
 import { useAuth } from '@/hooks/useAuth';
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { getExperiencesStats } from '@/services/api';
 
 interface Activity {
@@ -12,7 +12,6 @@ interface Activity {
   learnerInitials: string;
   createdAt: string;
 }
-
 
 interface StatsData {
   totalLearners: number;
@@ -40,33 +39,63 @@ export default function Dashboard() {
   const { user, loading: authLoading } = useAuth();
   const router = useRouter();
   const [stats, setStats] = useState<StatsData | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [refreshing, setRefreshing] = useState(false);
 
-  const fetchStats = async () => {
+  // CORRECTION BUG 2 : loading démarre à false.
+  // Il passe à true uniquement quand fetchStats() commence réellement.
+  // Ainsi si user reste null (redirect), le spinner ne bloque jamais.
+  const [loading, setLoading] = useState(false);
+  const [refreshing, setRefreshing] = useState(false);
+  const [fetchError, setFetchError] = useState(false);
+  const timeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const fetchedRef = useRef(false);
+
+  const fetchStats = async (isRefresh = false) => {
+    setFetchError(false);
+    if (isRefresh) {
+      setRefreshing(true);
+    } else {
+      setLoading(true);
+    }
+
+    // Timeout de sécurité : si pas de réponse en 15s → afficher erreur + retry
+    if (timeoutRef.current) clearTimeout(timeoutRef.current);
+    timeoutRef.current = setTimeout(() => {
+      setLoading(false);
+      setRefreshing(false);
+      setFetchError(true);
+    }, 15000);
+
     try {
       const response = await getExperiencesStats();
       setStats(response.data);
+      setFetchError(false);
     } catch (error) {
       console.error('Failed to fetch stats', error);
+      setFetchError(true);
     } finally {
+      if (timeoutRef.current) clearTimeout(timeoutRef.current);
       setLoading(false);
       setRefreshing(false);
     }
   };
 
+  // Fetch une seule fois au mount (quand user est prêt)
   useEffect(() => {
-    if (user && user.role === 'ADMIN') {
+    if (user && user.role === 'ADMIN' && !fetchedRef.current) {
+      fetchedRef.current = true;
       fetchStats();
     }
+    return () => {
+      if (timeoutRef.current) clearTimeout(timeoutRef.current);
+    };
   }, [user]);
 
   const handleRefresh = () => {
-    setRefreshing(true);
-    fetchStats();
+    fetchStats(true);
   };
 
-  if (authLoading || loading) {
+  // Auth en cours → spinner léger
+  if (authLoading) {
     return (
       <div className="min-h-screen flex items-center justify-center">
         <Loader2 className="animate-spin text-blue-600" size={48} />
@@ -74,13 +103,46 @@ export default function Dashboard() {
     );
   }
 
+  // Non autorisé
   if (!user || user.role !== 'ADMIN') return null;
 
+  // Données en cours de chargement (première fois)
+  if (loading) {
+    return (
+      <div className="min-h-[60vh] flex flex-col items-center justify-center gap-4">
+        <Loader2 className="animate-spin text-blue-600" size={40} />
+        <p className="text-slate-500 text-sm font-medium">Chargement du tableau de bord...</p>
+      </div>
+    );
+  }
+
+  // Erreur de chargement → fallback avec retry
+  if (fetchError && !stats) {
+    return (
+      <div className="min-h-[60vh] flex flex-col items-center justify-center gap-4 text-center">
+        <div className="p-4 bg-red-50 rounded-full">
+          <AlertCircle className="text-red-500" size={32} />
+        </div>
+        <h3 className="text-lg font-bold text-slate-800">Impossible de charger les données</h3>
+        <p className="text-slate-500 text-sm max-w-xs">
+          Le serveur met du temps à répondre. Cliquez sur Réessayer.
+        </p>
+        <button
+          onClick={() => { fetchedRef.current = false; fetchStats(); }}
+          className="flex items-center gap-2 px-6 py-3 bg-blue-600 text-white rounded-xl font-bold hover:bg-blue-700 transition-colors"
+        >
+          <RefreshCw size={16} />
+          Réessayer
+        </button>
+      </div>
+    );
+  }
+
   const statsData = [
-    { name: 'Total Académiciens', value: stats?.totalLearners || 24, icon: Users, color: 'bg-blue-500' },
+    { name: 'Total Académiciens', value: stats?.totalLearners ?? 24, icon: Users, color: 'bg-blue-500' },
     { name: 'Sessions Actives', value: 3, icon: BookOpen, color: 'bg-purple-500' },
-    { name: 'Témoignages Reçus', value: stats?.totalReceived || 0, icon: MessageSquare, color: 'bg-green-500' },
-    { name: 'En attente', value: stats?.pending || 0, icon: Clock, color: 'bg-orange-500' },
+    { name: 'Témoignages Reçus', value: stats?.totalReceived ?? 0, icon: MessageSquare, color: 'bg-green-500' },
+    { name: 'En attente', value: stats?.pending ?? 0, icon: Clock, color: 'bg-orange-500' },
   ];
 
   return (
@@ -119,7 +181,7 @@ export default function Dashboard() {
           <h2 className="text-xl font-bold text-slate-900 mb-4">Activité Récente</h2>
           <div className="space-y-4">
             {stats?.recentActivities && stats.recentActivities.length > 0 ? (
-              stats.recentActivities.map((activity, index) => (
+              stats.recentActivities.map((activity) => (
                 <div key={activity.id} className="flex items-center justify-between py-3 border-b border-slate-50 last:border-0">
                   <div className="flex items-center space-x-3">
                     <div className="w-10 h-10 rounded-full bg-slate-100 flex items-center justify-center text-slate-500 font-bold uppercase">
@@ -145,21 +207,21 @@ export default function Dashboard() {
         <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-100 min-h-[300px]">
           <h2 className="text-xl font-bold text-slate-900 mb-4">Actions Rapides</h2>
           <div className="grid grid-cols-2 gap-4">
-            <button 
+            <button
               onClick={() => router.push('/admin/learners')}
               className="p-4 rounded-xl border border-slate-200 hover:bg-slate-50 text-center transition-colors"
             >
               <Users className="mx-auto mb-2 text-blue-500" />
               <span className="text-sm font-medium">Ajouter un élève</span>
             </button>
-            <button 
+            <button
               onClick={() => router.push('/admin/sessions')}
               className="p-4 rounded-xl border border-slate-200 hover:bg-slate-50 text-center transition-colors"
             >
               <BookOpen className="mx-auto mb-2 text-purple-500" />
               <span className="text-sm font-medium">Nouvelle Session</span>
             </button>
-            <button 
+            <button
               onClick={() => router.push('/admin/experiences')}
               className="p-4 rounded-xl border border-slate-200 hover:bg-slate-50 text-center transition-colors"
             >

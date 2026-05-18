@@ -63,17 +63,44 @@ export default function LearnerDashboard() {
   const router = useRouter();
   const [user, setUser] = useState<UserData | null>(null);
   const [data, setData] = useState<LearnerStats | null>(null);
-  const [loading, setLoading] = useState(true);
+  // CORRECTION BUG 2 : loading démarre à false — ne bloque plus si les données tardent
+  const [loading, setLoading] = useState(false);
+  const [fetchError, setFetchError] = useState(false);
+  const timeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const fetchDashboardData = async () => {
+    setFetchError(false);
+    setLoading(true);
+
+    // Timeout de sécurité 15s : évite le spinner infini
+    if (timeoutRef.current) clearTimeout(timeoutRef.current);
+    timeoutRef.current = setTimeout(() => {
+      setLoading(false);
+      setFetchError(true);
+    }, 15000);
+
+    try {
+      const response = await api.get('/learners/dashboard/stats');
+      setData(response.data);
+      setFetchError(false);
+    } catch (error) {
+      console.error('Failed to fetch dashboard data', error);
+      setFetchError(true);
+    } finally {
+      if (timeoutRef.current) clearTimeout(timeoutRef.current);
+      setLoading(false);
+    }
+  };
 
   useEffect(() => {
     const userData = localStorage.getItem('reebi_user');
     const token = localStorage.getItem('reebi_token');
-    
+
     if (!token || !userData) {
       router.push('/login');
       return;
     }
-    
+
     try {
       const parsedUser = JSON.parse(userData);
       setUser(parsedUser);
@@ -81,19 +108,11 @@ export default function LearnerDashboard() {
     } catch (e) {
       router.push('/login');
     }
-  }, [router]);
 
-  const fetchDashboardData = async () => {
-    try {
-      setLoading(true);
-      const response = await api.get('/learners/dashboard/stats');
-      setData(response.data);
-    } catch (error) {
-      console.error('Failed to fetch dashboard data', error);
-    } finally {
-      setLoading(false);
-    }
-  };
+    return () => {
+      if (timeoutRef.current) clearTimeout(timeoutRef.current);
+    };
+  }, [router]);
 
   const handleLogout = () => {
     localStorage.removeItem('reebi_token');
@@ -101,7 +120,8 @@ export default function LearnerDashboard() {
     router.push('/login');
   };
 
-  if (loading || !data) {
+  // Chargement en cours
+  if (loading) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-slate-50 flex-col gap-4">
         <div className="w-12 h-12 border-4 border-blue-600 border-t-transparent rounded-full animate-spin"></div>
@@ -109,6 +129,29 @@ export default function LearnerDashboard() {
       </div>
     );
   }
+
+  // Erreur de chargement — fallback avec retry
+  if (fetchError && !data) {
+    return (
+      <div className="min-h-screen flex flex-col items-center justify-center bg-slate-50 gap-4 text-center px-4">
+        <div className="p-4 bg-red-50 rounded-full">
+          <svg className="w-8 h-8 text-red-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-2.5L13.732 4c-.77-.833-1.964-.833-2.732 0L4.072 16.5C3.302 18.333 4.264 20 5.804 20z" />
+          </svg>
+        </div>
+        <h3 className="text-lg font-bold text-slate-800">Impossible de charger vos données</h3>
+        <p className="text-slate-500 text-sm max-w-xs">Le serveur met du temps à répondre. Veuillez réessayer.</p>
+        <button
+          onClick={fetchDashboardData}
+          className="flex items-center gap-2 px-6 py-3 bg-blue-600 text-white rounded-xl font-bold hover:bg-blue-700 transition-colors"
+        >
+          Réessayer
+        </button>
+      </div>
+    );
+  }
+
+  if (!data) return null;
 
   return (
     <div className="min-h-screen bg-slate-50 pb-20 font-sans selection:bg-blue-100 selection:text-blue-900 overflow-x-hidden">
@@ -320,7 +363,7 @@ function ResultSection({ global, learner }: ResultSectionProps) {
   const certificateRef = useRef<HTMLDivElement>(null);
   const [iframeScale, setIframeScale] = useState(1);
 
-  console.log('[DEBUG] global.observation:', global.observation, 'global.codeAttestation:', global.codeAttestation);
+  // Debug supprimé en production
   const normalizedObservation = (global.observation || '')
     .trim()
     .toLowerCase()
@@ -445,10 +488,19 @@ function ResultSection({ global, learner }: ResultSectionProps) {
     });
   };
 
+  const [pdfLoadingMsg, setPdfLoadingMsg] = useState('');
+  const pdfMsgTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
   const handleDownloadPDF = async () => {
     if (!renderedHtml) return;
 
     setIsExporting(true);
+    setPdfLoadingMsg('');
+
+    if (pdfMsgTimerRef.current) clearTimeout(pdfMsgTimerRef.current);
+    pdfMsgTimerRef.current = setTimeout(() => {
+      setPdfLoadingMsg('Le serveur prépare votre PDF...');
+    }, 5000);
 
     try {
       const token = localStorage.getItem('reebi_token');
@@ -581,13 +633,14 @@ function ResultSection({ global, learner }: ResultSectionProps) {
         document.body.removeChild(container);
       }
       
-      setIsExporting(false);
-      console.log('[PDF] Complete!');
     } catch (err: any) {
       console.error('PDF Export Error:', err);
-      setIsExporting(false);
       const msg = err?.message || 'Une erreur est survenue lors de l\'exportation du PDF.';
       alert(msg);
+    } finally {
+      setIsExporting(false);
+      if (pdfMsgTimerRef.current) clearTimeout(pdfMsgTimerRef.current);
+      setPdfLoadingMsg('');
     }
   };
 
@@ -688,7 +741,10 @@ if (isNotCertified) {
               className="flex items-center gap-2 md:gap-3 px-6 md:px-10 py-3 md:py-5 bg-slate-900 text-white rounded-2xl md:rounded-[2rem] font-black text-sm md:text-lg hover:bg-blue-600 transition-all shadow-2xl shadow-slate-200 transform active:scale-95 group disabled:opacity-50 min-h-touch"
             >
               {isExporting ? (
-                <div className="w-5 md:w-6 h-5 md:h-6 border-3 border-white border-t-transparent rounded-full animate-spin"></div>
+                <>
+                  <div className="w-5 md:w-6 h-5 md:h-6 border-3 border-white border-t-transparent rounded-full animate-spin"></div>
+                  {pdfLoadingMsg && <span className="text-xs font-medium ml-2 opacity-80">{pdfLoadingMsg}</span>}
+                </>
               ) : (
                 <>
                   <DownloadIcon size={24} className="group-hover:-translate-y-1 transition-transform" />

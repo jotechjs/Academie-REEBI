@@ -70,7 +70,7 @@ export class CertificateService {
         <style>
           ${styles}
           @page {
-            size: A4 landscape;
+            size: 297mm 210mm;
             margin: 0;
           }
           * {
@@ -79,24 +79,29 @@ export class CertificateService {
             box-sizing: border-box;
           }
           html, body {
-            width: 1122px;
-            height: 794px;
-            margin: 0;
-            padding: 0;
+            width: 297mm !important;
+            height: 210mm !important;
+            margin: 0 !important;
+            padding: 0 !important;
             overflow: hidden;
             background-color: #ffffff !important;
             -webkit-print-color-adjust: exact;
             print-color-adjust: exact;
           }
           .certificate {
-             width: 1122px;
-             height: 794px;
-             background-color: #ffffff !important;
+            width: 297mm !important;
+            height: 210mm !important;
+            min-width: 297mm !important;
+            min-height: 210mm !important;
+            max-width: 297mm !important;
+            max-height: 210mm !important;
+            overflow: hidden;
+            background-color: #ffffff !important;
           }
           img {
-             display: block;
-             max-width: 100%;
-             height: auto;
+            display: block;
+            max-width: 100%;
+            height: auto;
           }
         </style>
       `;
@@ -114,8 +119,8 @@ export class CertificateService {
   }
 
   async generatePDF(data: CertificateData): Promise<Buffer> {
-    // Désactiver le cache en production/serverless
-    const useCache = !isProduction && !process.env.VERCEL && !process.env.RENDER;
+    // Désactiver le cache en production/serverless, et temporairement en local pour tester les modifs de design
+    const useCache = false; // !isProduction && !process.env.VERCEL && !process.env.RENDER;
     
     let cacheFilePath: string | null = null;
     
@@ -195,18 +200,20 @@ export class CertificateService {
       await page.setViewport({
         width: 1122,
         height: 794,
-        deviceScaleFactor: 2,
+        deviceScaleFactor: 1, // 1 = rendu fidèle 1:1 avec les dimensions CSS
       });
 
+      // 'domcontentloaded' : tous les assets sont en base64 (pas de réseau)
+      // → beaucoup plus rapide que networkidle2 (qui attend 500ms sans réseau)
       await page.setContent(html, {
-        waitUntil: ['networkidle2'],
-        timeout: 30000,
+        waitUntil: ['domcontentloaded'],
+        timeout: 15000,
       });
 
       console.log('[PDF] Contenu HTML injecté');
 
-      // Wait for all resources and render
-      await page.waitForSelector('.certificate', { timeout: 10000 }).catch(() => {
+      // Attendre que le sélecteur .certificate soit présent
+      await page.waitForSelector('.certificate', { timeout: 8000 }).catch(() => {
         console.log('[PDF] Certificate selector not found, continuing...');
       });
 
@@ -215,41 +222,38 @@ export class CertificateService {
       console.log('[PDF] Page content length:', pageContent.length);
 
       await page.evaluate(async () => {
-        // Wait for all images to load
+        // Attendre le chargement des images base64
         const images = Array.from(document.images);
-        console.log('[PDF] Nombre d\'images dans le document:', images.length);
-        
         for (const img of images) {
           if (!img.complete) {
             await new Promise((resolve) => {
               img.onload = resolve;
               img.onerror = resolve;
-              setTimeout(resolve, 5000);
+              setTimeout(resolve, 3000); // max 3s par image
             });
           }
         }
-        
-        // Wait for fonts
+
+        // Attendre les fonts
         if (document.fonts && document.fonts.ready) {
           await document.fonts.ready.catch(() => {});
         }
-        
-        // Force a repaint
+
+        // Forcer un repaint pour s'assurer du rendu final
         document.body.offsetHeight;
       });
-      
-      console.log('[PDF] Images et fonts chargés');
 
-      await new Promise(resolve => setTimeout(resolve, 2000));
+      console.log('[PDF] Images et fonts chargés');
+      // NOTE: setTimeout(2000) supprimé — économie de 2s sur chaque génération.
+      // Les waitForSelector + evaluate ci-dessus garantissent le rendu complet.
 
       const pdfBufferRaw = await page.pdf({
-        width: '1122px',
-        height: '794px',
+        width: '297mm',
+        height: '210mm',
         margin: { top: 0, right: 0, bottom: 0, left: 0 },
         printBackground: true,
-        scale: 1.5,
+        scale: 1,
         displayHeaderFooter: false,
-        preferCSSPageSize: false
       });
 
       const pdfBuffer = Buffer.from(pdfBufferRaw);
